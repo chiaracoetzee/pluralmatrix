@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
+const JWT_SECRET = process.env.JWT_SECRET;
 const HOMESERVER_URL = process.env.SYNAPSE_URL || 'http://plural-synapse:8008';
 
 export interface AuthRequest extends Request {
@@ -18,6 +18,10 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
     const token = (authHeader && authHeader.split(' ')[1]) || (req.query.token as string);
 
     if (!token) return res.sendStatus(401);
+    if (!JWT_SECRET) {
+        console.error('[Auth] JWT_SECRET is not configured!');
+        return res.sendStatus(500);
+    }
 
     jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
         if (err) return res.sendStatus(403);
@@ -65,6 +69,10 @@ export const generateToken = (mxid: string) => {
     const domain = process.env.SYNAPSE_DOMAIN || 'localhost';
     let fullMxid = mxid.includes(':') ? mxid : `@${mxid}:${domain}`;
     if (!fullMxid.startsWith('@')) fullMxid = `@${fullMxid}`;
+    
+    if (!JWT_SECRET) {
+        throw new Error('JWT_SECRET is not configured!');
+    }
     
     return jwt.sign({ mxid: fullMxid.toLowerCase() }, JWT_SECRET, { expiresIn: '7d' });
 };

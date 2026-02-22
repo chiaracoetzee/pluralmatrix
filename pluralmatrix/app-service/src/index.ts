@@ -18,6 +18,12 @@ app.use(express.static(clientPath));
 // API Routes
 app.use('/api', routes);
 
+// Check for mandatory environment variables
+if (!process.env.AS_TOKEN || !process.env.JWT_SECRET) {
+    console.error('FATAL: Missing mandatory environment variables AS_TOKEN or JWT_SECRET!');
+    process.exit(1);
+}
+
 // The /check endpoint is actually at root /check in your old code
 // My gatekeeperRoutes uses router.post('/check', ...) and it's mounted at /api
 // Wait, the old code had app.post('/check', ...) at the root level.

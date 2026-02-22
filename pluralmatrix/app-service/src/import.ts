@@ -416,7 +416,9 @@ export const exportAvatarsZip = async (mxid: string, stream: NodeJS.WritableStre
     if (!bridge) throw new Error("Bridge not initialized");
 
     const homeserverUrl = process.env.SYNAPSE_URL || "http://plural-synapse:8008";
-    const asToken = process.env.AS_TOKEN || "";
+    const asToken = process.env.AS_TOKEN;
+
+    if (!asToken) throw new Error("AS_TOKEN is not configured!");
 
     for (const member of system.members) {
         if (!member.avatarUrl || !member.avatarUrl.startsWith('mxc://')) continue;

@@ -2,7 +2,7 @@ import { loginToMatrix, generateToken } from './auth';
 import jwt from 'jsonwebtoken';
 
 describe('Authentication Engine', () => {
-    const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
+    const JWT_SECRET = 'test_jwt_secret';
 
     beforeEach(() => {
         jest.clearAllMocks();

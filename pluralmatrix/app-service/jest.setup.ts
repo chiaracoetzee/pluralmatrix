@@ -1,4 +1,3 @@
-// Mock global fetch if not present (Node < 18 or specific test envs)
-if (typeof global.fetch === 'undefined') {
-    global.fetch = require('node-fetch');
-}
+process.env.AS_TOKEN = 'test_as_token';
+process.env.JWT_SECRET = 'test_jwt_secret';
+process.env.SYNAPSE_DOMAIN = 'localhost';
