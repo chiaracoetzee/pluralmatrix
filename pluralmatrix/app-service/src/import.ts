@@ -430,7 +430,8 @@ export const exportAvatarsZip = async (mxid: string, stream: NodeJS.WritableStre
             const ext = contentType.split('/')[1]?.split(';')[0] || 'png';
             const buffer = Buffer.from(await response.arrayBuffer());
 
-            archive.append(buffer, { name: `${mediaId}.${ext}` });
+            // Descriptive filename: slug_mediaId.ext
+            archive.append(buffer, { name: `${member.slug}_${mediaId}.${ext}` });
         } catch (e) {
             console.error(`[Export] Error adding avatar for ${member.name} to ZIP:`, e);
         }
@@ -461,7 +462,9 @@ export const importAvatarsZip = async (mxid: string, zipBuffer: Buffer) => {
         if (entry.isDirectory) continue;
 
         const filename = entry.entryName;
-        const oldMediaId = filename.split('.')[0];
+        const namePart = filename.split('.')[0];
+        // Extract mediaId (part after the first underscore, if any)
+        const oldMediaId = namePart.includes('_') ? namePart.split('_').slice(1).join('_') : namePart;
         const ext = filename.split('.')[1] || 'png';
         const contentType = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
 

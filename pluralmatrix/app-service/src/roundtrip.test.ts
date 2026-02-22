@@ -131,7 +131,7 @@ describe('PluralKit Roundtrip', () => {
             const mockSystem = {
                 ownerId: '@user:localhost',
                 members: [
-                    { name: 'Alice', avatarUrl: 'mxc://localhost/media1' }
+                    { name: 'Alice', slug: 'alice', avatarUrl: 'mxc://localhost/media1' }
                 ]
             };
             (prisma.system.findUnique as jest.Mock).mockResolvedValue(mockSystem);
@@ -159,7 +159,7 @@ describe('PluralKit Roundtrip', () => {
             const entries = zip.getEntries();
 
             expect(entries).toHaveLength(1);
-            expect(entries[0].entryName).toBe('media1.png');
+            expect(entries[0].entryName).toBe('alice_media1.png');
             // Compare as strings or buffers directly
             expect(entries[0].getData().toString()).toBe(fakeImageData.toString());
         });
@@ -170,14 +170,20 @@ describe('PluralKit Roundtrip', () => {
                 id: 'sys1',
                 slug: 'mysys',
                 members: [
-                    { id: 'm1', slug: 'alice', avatarUrl: 'mxc://old/media1' }
+                    { id: 'm1', slug: 'alice', name: 'Alice', avatarUrl: 'mxc://old/media1' }
                 ]
             };
             (prisma.system.findUnique as jest.Mock).mockResolvedValue(mockSystem);
-            (prisma.member.update as jest.Mock).mockResolvedValue({ id: 'm1', avatarUrl: 'mxc://new/uploaded' });
+            (prisma.member.update as jest.Mock).mockResolvedValue({ 
+                id: 'm1', 
+                slug: 'alice', 
+                name: 'Alice', 
+                avatarUrl: 'mxc://new/uploaded' 
+            });
 
             const zip = new AdmZip();
-            zip.addFile('media1.png', originalData);
+            // Test with the new descriptive filename format
+            zip.addFile('alice_media1.png', originalData);
             const zipBuffer = zip.toBuffer();
 
             mockBotClient.uploadContent.mockResolvedValue('mxc://new/uploaded');
@@ -190,7 +196,7 @@ describe('PluralKit Roundtrip', () => {
             expect(mockBotClient.uploadContent).toHaveBeenCalledWith(
                 originalData,
                 'image/png',
-                'media1.png'
+                'alice_media1.png'
             );
 
             expect(prisma.member.update).toHaveBeenCalledWith(expect.objectContaining({
