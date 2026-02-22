@@ -1,4 +1,24 @@
-import { generateSlug, getCleanPrefix, extractNameFromDescription } from './import';
+import { generateSlug, getCleanPrefix, extractNameFromDescription, decommissionGhost } from './import';
+
+// Mock Bridge
+const mockIntent = {
+    leave: jest.fn(),
+    matrixClient: {
+        getJoinedRooms: jest.fn(),
+    }
+};
+
+const mockBridge = {
+    getIntent: jest.fn().mockReturnValue(mockIntent),
+};
+
+jest.mock('./bot', () => ({
+    getBridge: jest.fn(() => mockBridge),
+    prisma: {
+        system: { upsert: jest.fn() },
+        member: { upsert: jest.fn() }
+    }
+}));
 
 describe('Importer Logic', () => {
     describe('generateSlug', () => {
@@ -55,6 +75,33 @@ describe('Importer Logic', () => {
         it('should return null if no pattern matches', () => {
             const desc = "Just some random text about nothing.";
             expect(extractNameFromDescription(desc)).toBeNull();
+        });
+    });
+
+    describe('decommissionGhost', () => {
+        beforeEach(() => {
+            jest.clearAllMocks();
+        });
+
+        it('should make the ghost leave all joined rooms', async () => {
+            const member = { slug: 'ghost' };
+            const system = { slug: 'sys' };
+            
+            mockIntent.matrixClient.getJoinedRooms.mockResolvedValue(['!room1:localhost', '!room2:localhost']);
+
+            await decommissionGhost(member, system);
+
+            expect(mockBridge.getIntent).toHaveBeenCalledWith(expect.stringContaining('@_plural_sys_ghost:'));
+            expect(mockIntent.matrixClient.getJoinedRooms).toHaveBeenCalled();
+            expect(mockIntent.leave).toHaveBeenCalledTimes(2);
+            expect(mockIntent.leave).toHaveBeenCalledWith('!room1:localhost');
+            expect(mockIntent.leave).toHaveBeenCalledWith('!room2:localhost');
+        });
+
+        it('should handle errors gracefully', async () => {
+            mockIntent.matrixClient.getJoinedRooms.mockRejectedValue(new Error('API Fail'));
+            await decommissionGhost({ slug: 'ghost' }, { slug: 'sys' });
+            // Should not throw
         });
     });
 });
