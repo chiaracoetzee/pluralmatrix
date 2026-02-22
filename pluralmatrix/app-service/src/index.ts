@@ -12,6 +12,12 @@ const PORT = process.env.APP_PORT || 9000;
 app.use(cors());
 app.use(bodyParser.json());
 
+// Request Logger
+app.use((req, res, next) => {
+    console.log(`[API] ${req.method} ${req.url}`);
+    next();
+});
+
 // Serve static files from the React app
 const clientPath = path.join(__dirname, '../client/dist');
 app.use(express.static(clientPath));
