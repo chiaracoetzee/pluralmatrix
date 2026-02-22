@@ -1,0 +1,57 @@
+version: "3.7"
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-synapse_password}
+      POSTGRES_DB: synapse
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - plural-net
+
+  synapse:
+    image: matrixdotorg/synapse:latest
+    container_name: plural-synapse
+    restart: unless-stopped
+    environment:
+      - SYNAPSE_SERVER_NAME=${SYNAPSE_SERVER_NAME:-localhost}
+      - SYNAPSE_REPORT_STATS=${SYNAPSE_REPORT_STATS:-no}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-synapse_password}
+      - PYTHONPATH=/modules
+    volumes:
+      - ./synapse/config:/data
+      - ./synapse/modules:/modules  # Mount our custom module
+    depends_on:
+      - postgres
+    ports:
+      - "8008:8008"
+    networks:
+      - plural-net
+
+  app-service:
+    build: ./app-service
+    container_name: plural-app-service
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://synapse:synapse_password@postgres:5432/plural_db}
+      - SYNAPSE_URL=http://synapse:8008
+      - APP_PORT=${APP_PORT:-9000}
+    volumes:
+      - ./synapse/config/app-service-registration.yaml:/data/app-service-registration.yaml
+    depends_on:
+      - postgres
+      - synapse
+    ports:
+      - "9000:9000"
+    networks:
+      - plural-net
+
+networks:
+  plural-net:
+
+volumes:
+  postgres_data:

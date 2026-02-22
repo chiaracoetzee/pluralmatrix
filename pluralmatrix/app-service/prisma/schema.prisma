@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model System {
+  id        String   @id @default(uuid())
+  ownerId   String   @unique // The Matrix User ID (@user:server)
+  name      String?
+  members   Member[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Member {
+  id          String   @id @default(uuid())
+  systemId    String
+  system      System   @relation(fields: [systemId], references: [id])
+  name        String
+  displayName String?
+  avatarUrl   String?
+  proxyTags   Json     // Array of { prefix: string, suffix: string }
+  matrixId    String?  // The Ghost User ID (@_plural_id:server)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

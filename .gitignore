@@ -1,0 +1,32 @@
+# Node.js
+node_modules/
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.eslintcache
+
+# Project specific
+pluralmatrix/app-service/node_modules/
+pluralmatrix/app-service/dist/
+pluralmatrix/app-service/client/node_modules/
+pluralmatrix/app-service/client/dist/
+
+# Synapse & Matrix (Secrets and DBs)
+.env
+pluralmatrix/synapse/config/homeserver.yaml
+pluralmatrix/synapse/config/homeserver.db
+pluralmatrix/synapse/config/homeserver.db-shm
+pluralmatrix/synapse/config/homeserver.db-wal
+pluralmatrix/synapse/config/localhost.signing.key
+pluralmatrix/synapse/config/app-service-registration.yaml
+pluralmatrix/synapse/config/media_store/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockercache
+pluralmatrix/synapse/modules/plural_gatekeeper.py~
