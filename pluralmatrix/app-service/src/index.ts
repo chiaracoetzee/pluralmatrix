@@ -4,7 +4,7 @@ import cors from 'cors';
 import path from 'path';
 import { startMatrixBot, getBridge, prisma } from './bot';
 import { loginToMatrix, generateToken, authenticateToken, AuthRequest } from './auth';
-import { importFromPluralKit, syncGhostProfile } from './import';
+import { importFromPluralKit, syncGhostProfile, decommissionGhost } from './import';
 
 const app = express();
 const PORT = process.env.APP_PORT || 9000;
@@ -208,9 +208,13 @@ app.delete('/api/members/:id', authenticateToken, async (req: AuthRequest, res) 
         const id = req.params.id as string;
 
         const member = await prisma.member.findFirst({
-            where: { id, system: { ownerId: mxid } }
+            where: { id, system: { ownerId: mxid } },
+            include: { system: true }
         });
         if (!member) return res.status(403).json({ error: 'Unauthorized or not found' });
+
+        // Cleanup Matrix state (Async)
+        decommissionGhost(member, member.system);
 
         await prisma.member.delete({ where: { id } });
         res.json({ success: true });
@@ -223,6 +227,17 @@ app.delete('/api/members/:id', authenticateToken, async (req: AuthRequest, res) 
 app.delete('/api/members', authenticateToken, async (req: AuthRequest, res) => {
     try {
         const mxid = req.user!.mxid;
+        
+        // Find all members to decommission their ghosts first
+        const members = await prisma.member.findMany({
+            where: { system: { ownerId: mxid } },
+            include: { system: true }
+        });
+
+        for (const member of members) {
+            decommissionGhost(member, member.system);
+        }
+
         await prisma.member.deleteMany({
             where: { system: { ownerId: mxid } }
         });

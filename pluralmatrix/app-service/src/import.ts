@@ -129,6 +129,36 @@ export const syncGhostProfile = async (member: any, system: any) => {
 };
 
 /**
+ * Cleanup a ghost user when a member is deleted.
+ */
+export const decommissionGhost = async (member: any, system: any) => {
+    try {
+        const bridge = getBridge();
+        if (!bridge) return;
+
+        const domain = process.env.SYNAPSE_DOMAIN || 'localhost';
+        const ghostUserId = `@_plural_${system.slug}_${member.slug}:${domain}`;
+        const intent = bridge.getIntent(ghostUserId);
+
+        console.log(`[Ghost] Decommissioning ${ghostUserId}...`);
+
+        // 1. Get joined rooms
+        const rooms = await intent.matrixClient.getJoinedRooms();
+        
+        // 2. Leave all rooms
+        for (const roomId of rooms) {
+            try {
+                await intent.leave(roomId);
+            } catch (e) {}
+        }
+
+        console.log(`[Ghost] ${ghostUserId} has left all rooms.`);
+    } catch (e: any) {
+        console.error(`[Ghost] Failed to decommission ${member.slug}:`, e.message || e);
+    }
+};
+
+/**
  * Main importer logic for PluralKit JSON.
  */
 export const importFromPluralKit = async (mxid: string, jsonData: any) => {
