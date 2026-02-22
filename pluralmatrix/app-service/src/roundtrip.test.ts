@@ -126,7 +126,8 @@ describe('PluralKit Roundtrip', () => {
     });
 
     describe('Avatar ZIP Roundtrip', () => {
-        it('should export avatars to a ZIP stream', async () => {
+        it('should export avatars to a ZIP stream with correct data', async () => {
+            const fakeImageData = Buffer.from('fake-image-binary-data-123');
             const mockSystem = {
                 ownerId: '@user:localhost',
                 members: [
@@ -136,17 +137,22 @@ describe('PluralKit Roundtrip', () => {
             (prisma.system.findUnique as jest.Mock).mockResolvedValue(mockSystem);
 
             // Mock fetch for the media download
+            // We ensure we return a proper ArrayBuffer matching the buffer content
             global.fetch = jest.fn().mockResolvedValue({
                 ok: true,
                 headers: new Map([['content-type', 'image/png']]),
-                arrayBuffer: () => Promise.resolve(Buffer.from('fake-image-data'))
+                arrayBuffer: () => Promise.resolve(new Uint8Array(fakeImageData).buffer)
             });
 
             const zipStream = new PassThrough();
             const chunks: any[] = [];
             zipStream.on('data', (chunk) => chunks.push(chunk));
 
-            await exportAvatarsZip('@user:localhost', zipStream);
+            const exportPromise = exportAvatarsZip('@user:localhost', zipStream);
+            
+            // Wait for the stream to finish properly
+            await new Promise((resolve) => zipStream.on('finish', resolve));
+            await exportPromise;
 
             const zipBuffer = Buffer.concat(chunks);
             const zip = new AdmZip(zipBuffer);
@@ -154,9 +160,12 @@ describe('PluralKit Roundtrip', () => {
 
             expect(entries).toHaveLength(1);
             expect(entries[0].entryName).toBe('media1.png');
+            // Compare as strings or buffers directly
+            expect(entries[0].getData().toString()).toBe(fakeImageData.toString());
         });
 
-        it('should import avatars from a ZIP and update members', async () => {
+        it('should import avatars from a ZIP and re-upload exact binary data', async () => {
+            const originalData = Buffer.from('binary-content-to-preserve');
             const mockSystem = {
                 id: 'sys1',
                 slug: 'mysys',
@@ -168,7 +177,7 @@ describe('PluralKit Roundtrip', () => {
             (prisma.member.update as jest.Mock).mockResolvedValue({ id: 'm1', avatarUrl: 'mxc://new/uploaded' });
 
             const zip = new AdmZip();
-            zip.addFile('media1.png', Buffer.from('image-content'));
+            zip.addFile('media1.png', originalData);
             const zipBuffer = zip.toBuffer();
 
             mockBotClient.uploadContent.mockResolvedValue('mxc://new/uploaded');
@@ -176,6 +185,14 @@ describe('PluralKit Roundtrip', () => {
             const count = await importAvatarsZip('@user:localhost', zipBuffer);
 
             expect(count).toBe(1);
+            
+            // Verify that the data uploaded to Matrix matches the data in the ZIP
+            expect(mockBotClient.uploadContent).toHaveBeenCalledWith(
+                originalData,
+                'image/png',
+                'media1.png'
+            );
+
             expect(prisma.member.update).toHaveBeenCalledWith(expect.objectContaining({
                 where: { id: 'm1' },
                 data: { avatarUrl: 'mxc://new/uploaded' }
