@@ -1,5 +1,7 @@
 import { prisma } from './bot';
 import { getBridge } from './bot';
+import archiver from 'archiver';
+import AdmZip from 'adm-zip';
 
 /**
  * Maps decorative, Greek, or Faux Cyrillic characters to their closest Latin equivalents.
@@ -81,6 +83,10 @@ export const extractNameFromDescription = (description: string | null): string |
  */
 export const migrateAvatar = async (url: string): Promise<string | null> => {
     if (!url) return null;
+    
+    // If it's already an mxc:// URL, don't try to migrate it
+    if (url.startsWith('mxc://')) return url;
+
     try {
         const bridge = getBridge();
         if (!bridge) return null;
@@ -280,4 +286,207 @@ export const importFromPluralKit = async (mxid: string, jsonData: any) => {
 
     console.log(`[Importer] Successfully imported ${importedCount} members for ${mxid}`);
     return importedCount;
+};
+
+/**
+ * Stringifies an object to JSON while escaping all non-ASCII characters 
+ * using \uXXXX sequences for maximum compatibility.
+ */
+export const stringifyWithEscapedUnicode = (obj: any): string => {
+    return JSON.stringify(obj, null, 4).replace(/[^\x00-\x7f]/g, (c) => {
+        return "\\u" + c.charCodeAt(0).toString(16).padStart(4, '0');
+    });
+};
+
+/**
+ * Generates a PluralKit-compatible JSON export for a system.
+ */
+export const exportToPluralKit = async (mxid: string) => {
+    const system = await prisma.system.findUnique({
+        where: { ownerId: mxid },
+        include: { members: true }
+    });
+
+    if (!system) return null;
+
+    const pkExport = {
+        version: 2,
+        id: system.slug.substring(0, 5),
+        uuid: system.id,
+        name: system.name,
+        description: null, // We don't store system description yet
+        tag: system.systemTag,
+        pronouns: null,
+        avatar_url: null,
+        banner: null,
+        color: null,
+        created: system.createdAt.toISOString(),
+        webhook_url: null,
+        privacy: {
+            name_privacy: "public",
+            avatar_privacy: "public",
+            description_privacy: "public",
+            banner_privacy: "public",
+            pronoun_privacy: "public",
+            member_list_privacy: "public",
+            group_list_privacy: "public",
+            front_privacy: "public",
+            front_history_privacy: "public"
+        },
+        config: {
+            timezone: "UTC",
+            pings_enabled: true,
+            latch_timeout: null,
+            member_default_private: false,
+            group_default_private: false,
+            show_private_info: true,
+            member_limit: 1000,
+            group_limit: 250,
+            case_sensitive_proxy_tags: true,
+            proxy_error_message_enabled: true,
+            hid_display_split: false,
+            hid_display_caps: false,
+            hid_list_padding: "off",
+            card_show_color_hex: false,
+            proxy_switch: "off",
+            name_format: null,
+            description_templates: []
+        },
+        accounts: [],
+        members: system.members.map(m => ({
+            id: m.slug.substring(0, 5).padEnd(5, 'x'),
+            uuid: m.id,
+            name: m.name,
+            display_name: m.displayName,
+            color: m.color,
+            birthday: null,
+            pronouns: m.pronouns,
+            avatar_url: m.avatarUrl,
+            webhook_avatar_url: null,
+            banner: null,
+            description: m.description,
+            created: m.createdAt.toISOString(),
+            keep_proxy: false,
+            tts: false,
+            autoproxy_enabled: true,
+            message_count: 0,
+            last_message_timestamp: null,
+            proxy_tags: m.proxyTags,
+            privacy: {
+                visibility: "public",
+                name_privacy: "public",
+                description_privacy: "public",
+                banner_privacy: "public",
+                birthday_privacy: "public",
+                pronoun_privacy: "public",
+                avatar_privacy: "public",
+                metadata_privacy: "public",
+                proxy_privacy: "public"
+            }
+        })),
+        switches: []
+    };
+
+    return pkExport;
+};
+
+/**
+ * Fetches all member avatars and bundles them into a ZIP file.
+ */
+export const exportAvatarsZip = async (mxid: string, stream: NodeJS.WritableStream) => {
+    const system = await prisma.system.findUnique({
+        where: { ownerId: mxid },
+        include: { members: true }
+    });
+
+    if (!system) throw new Error("System not found");
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.pipe(stream);
+
+    const bridge = getBridge();
+    if (!bridge) throw new Error("Bridge not initialized");
+
+    const homeserverUrl = process.env.SYNAPSE_URL || "http://plural-synapse:8008";
+    const asToken = process.env.AS_TOKEN || "";
+
+    for (const member of system.members) {
+        if (!member.avatarUrl || !member.avatarUrl.startsWith('mxc://')) continue;
+
+        try {
+            const mxc = member.avatarUrl.replace('mxc://', '');
+            const [server, mediaId] = mxc.split('/');
+            
+            const response = await fetch(`${homeserverUrl}/_matrix/client/v1/media/download/${server}/${mediaId}`, {
+                headers: { 'Authorization': `Bearer ${asToken}` }
+            });
+
+            if (!response.ok) {
+                console.warn(`[Export] Failed to download avatar for ${member.name} (${member.avatarUrl}): ${response.status}`);
+                continue;
+            }
+
+            const contentType = response.headers.get('content-type') || 'image/png';
+            const ext = contentType.split('/')[1]?.split(';')[0] || 'png';
+            const buffer = Buffer.from(await response.arrayBuffer());
+
+            archive.append(buffer, { name: `${mediaId}.${ext}` });
+        } catch (e) {
+            console.error(`[Export] Error adding avatar for ${member.name} to ZIP:`, e);
+        }
+    }
+
+    await archive.finalize();
+};
+
+/**
+ * Imports a ZIP of avatars and updates member mappings.
+ */
+export const importAvatarsZip = async (mxid: string, zipBuffer: Buffer) => {
+    const system = await prisma.system.findUnique({
+        where: { ownerId: mxid },
+        include: { members: true }
+    });
+
+    if (!system) throw new Error("System not found");
+
+    const zip = new AdmZip(zipBuffer);
+    const entries = zip.getEntries();
+    const bridge = getBridge();
+    if (!bridge) throw new Error("Bridge not initialized");
+
+    let count = 0;
+
+    for (const entry of entries) {
+        if (entry.isDirectory) continue;
+
+        const filename = entry.entryName;
+        const oldMediaId = filename.split('.')[0];
+        const ext = filename.split('.')[1] || 'png';
+        const contentType = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+
+        // Find members who have this mediaId in their current mxc URL
+        const affectedMembers = system.members.filter(m => 
+            m.avatarUrl && m.avatarUrl.endsWith(`/${oldMediaId}`)
+        );
+
+        if (affectedMembers.length === 0) continue;
+
+        try {
+            const mxcUrl = await bridge.getBot().getClient().uploadContent(entry.getData(), contentType, filename);
+
+            for (const member of affectedMembers) {
+                const updated = await prisma.member.update({
+                    where: { id: member.id },
+                    data: { avatarUrl: mxcUrl }
+                });
+                await syncGhostProfile(updated, system);
+            }
+            count++;
+        } catch (e) {
+            console.error(`[Import] Failed to re-upload avatar ${filename}:`, e);
+        }
+    }
+
+    return count;
 };

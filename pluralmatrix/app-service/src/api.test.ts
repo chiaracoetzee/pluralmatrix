@@ -73,17 +73,38 @@ describe('API Endpoints', () => {
             expect(response.body[0].name).toBe('Lily');
         });
 
-        it('POST /api/members should create a new member', async () => {
+        it('POST /api/members should create a new member with all fields', async () => {
             (prisma.system.findUnique as jest.Mock).mockResolvedValue({ id: 'sys1', systemTag: 'Tag' });
-            (prisma.member.create as jest.Mock).mockResolvedValue({ id: 'm2', name: 'John' });
+            (prisma.member.create as jest.Mock).mockResolvedValue({ 
+                id: 'm2', 
+                name: 'John',
+                description: 'A test user',
+                pronouns: 'He/Him',
+                color: 'ff0000'
+            });
 
             const response = await request(app)
                 .post('/api/members')
                 .set(authHeader)
-                .send({ name: 'John', proxyTags: [] });
+                .send({ 
+                    name: 'John', 
+                    proxyTags: [],
+                    description: 'A test user',
+                    pronouns: 'He/Him',
+                    color: 'ff0000'
+                });
 
             expect(response.status).toBe(200);
-            expect(response.body.name).toBe('John');
+            expect(response.body.description).toBe('A test user');
+            expect(response.body.pronouns).toBe('He/Him');
+            expect(response.body.color).toBe('ff0000');
+            expect(prisma.member.create).toHaveBeenCalledWith(expect.objectContaining({
+                data: expect.objectContaining({
+                    description: 'A test user',
+                    pronouns: 'He/Him',
+                    color: 'ff0000'
+                })
+            }));
         });
 
         it('PATCH /api/members/:id should update existing member', async () => {

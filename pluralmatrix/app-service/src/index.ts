@@ -4,7 +4,7 @@ import cors from 'cors';
 import path from 'path';
 import { startMatrixBot, getBridge, prisma } from './bot';
 import { loginToMatrix, generateToken, authenticateToken, AuthRequest } from './auth';
-import { importFromPluralKit, syncGhostProfile, decommissionGhost } from './import';
+import { importFromPluralKit, syncGhostProfile, decommissionGhost, exportToPluralKit, stringifyWithEscapedUnicode, exportAvatarsZip, importAvatarsZip } from './import';
 
 const app = express();
 const PORT = process.env.APP_PORT || 9000;
@@ -77,6 +77,45 @@ app.post('/api/import/pluralkit', authenticateToken, async (req: AuthRequest, re
     }
 });
 
+app.get('/api/export/pluralkit', authenticateToken, async (req: AuthRequest, res) => {
+    try {
+        const mxid = req.user!.mxid;
+        const data = await exportToPluralKit(mxid);
+        
+        if (!data) return res.status(404).json({ error: 'System not found' });
+
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', 'attachment; filename=pluralkit_export.json');
+        res.send(stringifyWithEscapedUnicode(data));
+    } catch (e) {
+        console.error('[API] Export failed:', e);
+        res.status(500).json({ error: 'Export failed' });
+    }
+});
+
+app.get('/api/media/export', authenticateToken, async (req: AuthRequest, res) => {
+    try {
+        const mxid = req.user!.mxid;
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Content-Disposition', 'attachment; filename=avatars.zip');
+        await exportAvatarsZip(mxid, res);
+    } catch (e) {
+        console.error('[API] Media export failed:', e);
+        if (!res.headersSent) res.status(500).json({ error: 'Media export failed' });
+    }
+});
+
+app.post('/api/media/import', authenticateToken, express.raw({ type: 'application/zip', limit: '50mb' }), async (req: AuthRequest, res) => {
+    try {
+        const mxid = req.user!.mxid;
+        const count = await importAvatarsZip(mxid, req.body);
+        res.json({ success: true, count });
+    } catch (e) {
+        console.error('[API] Media import failed:', e);
+        res.status(500).json({ error: 'Media import failed' });
+    }
+});
+
 /**
  * System Management API
  */
@@ -145,7 +184,7 @@ app.get('/api/members', authenticateToken, async (req: AuthRequest, res) => {
 app.post('/api/members', authenticateToken, async (req: AuthRequest, res) => {
     try {
         const mxid = req.user!.mxid;
-        const { name, displayName, avatarUrl, proxyTags, slug: providedSlug } = req.body;
+        const { name, displayName, avatarUrl, proxyTags, slug: providedSlug, description, pronouns, color } = req.body;
 
         const system = await prisma.system.findUnique({ where: { ownerId: mxid } });
         if (!system) return res.status(404).json({ error: 'System not found' });
@@ -160,7 +199,10 @@ app.post('/api/members', authenticateToken, async (req: AuthRequest, res) => {
                 name,
                 displayName,
                 avatarUrl,
-                proxyTags: proxyTags || []
+                proxyTags: proxyTags || [],
+                description,
+                pronouns,
+                color
             }
         });
 
@@ -364,25 +406,14 @@ app.post('/check', async (req, res) => {
                                     displayname: finalDisplayName,
                                     avatar_url: member.avatarUrl || undefined
                                 });
-                            } catch (joinError) {
-                                await intent.join(room_id);
-                                await intent.setDisplayName(finalDisplayName);
-                                if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
-                            }
+                                                        } catch (joinError) {
+                                                            await intent.join(room_id);
+                                                            await intent.setDisplayName(finalDisplayName);
+                                                            if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
+                                                        }
                             
-                            // Strategy: The "Typing Feint"
-                            // Force client to resolve user profile via typing indicator before message arrives.
-                            try {
-                                await intent.sendTyping(room_id, true);
-                                await new Promise(r => setTimeout(r, 200)); // Brief pause to let client process
-                                await intent.sendTyping(room_id, false);
-                            } catch (e) {
-                                // Ignore typing errors
-                            }
-
-                            await intent.sendText(room_id, cleanContent);
-
-                            console.log(`[API] Ghost message sent!`);
+                                                        await intent.sendText(room_id, cleanContent);
+                                                        console.log(`[API] Ghost message sent!`);
                         } catch (e: any) { 
                             console.error("[API] Ghost Error:", e.message || e); 
                         }

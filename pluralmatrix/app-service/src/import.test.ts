@@ -15,8 +15,8 @@ const mockBridge = {
 jest.mock('./bot', () => ({
     getBridge: jest.fn(() => mockBridge),
     prisma: {
-        system: { upsert: jest.fn() },
-        member: { upsert: jest.fn() }
+        system: { upsert: jest.fn(), findUnique: jest.fn() },
+        member: { upsert: jest.fn(), findMany: jest.fn() }
     }
 }));
 
@@ -75,6 +75,58 @@ describe('Importer Logic', () => {
         it('should return null if no pattern matches', () => {
             const desc = "Just some random text about nothing.";
             expect(extractNameFromDescription(desc)).toBeNull();
+        });
+    });
+
+    describe('exportToPluralKit', () => {
+        it('should format system and member data correctly for PK', async () => {
+            const mockSystem = {
+                id: 'sys-uuid',
+                slug: 'mysystem',
+                name: 'My System',
+                systemTag: '[Tag]',
+                createdAt: new Date('2026-01-01T00:00:00Z'),
+                members: [
+                    {
+                        id: 'mem-uuid',
+                        slug: 'lily',
+                        name: 'Lily',
+                        displayName: 'Lily Override',
+                        pronouns: 'She/Her',
+                        color: 'ff00ff',
+                        description: 'A test member',
+                        createdAt: new Date('2026-01-01T00:00:00Z'),
+                        proxyTags: [{ prefix: 'l:', suffix: '' }]
+                    }
+                ]
+            };
+
+            const { prisma } = require('./bot');
+            (prisma.system.findUnique as jest.Mock).mockResolvedValue(mockSystem);
+
+            const { exportToPluralKit } = require('./import');
+            const result = await exportToPluralKit('@user:localhost');
+
+            expect(result.version).toBe(2);
+            expect(result.name).toBe('My System');
+            expect(result.tag).toBe('[Tag]');
+            expect(result.members).toHaveLength(1);
+            
+            const m = result.members[0];
+            expect(m.name).toBe('Lily');
+            expect(m.display_name).toBe('Lily Override');
+            expect(m.id).toBe('lilyx'); // 5-char pad logic
+            expect(m.proxy_tags).toEqual([{ prefix: 'l:', suffix: '' }]);
+            expect(m.privacy.visibility).toBe('public');
+        });
+    });
+
+    describe('migrateAvatar', () => {
+        it('should return mxc:// URLs as-is', async () => {
+            const { migrateAvatar } = require('./import');
+            const url = 'mxc://localhost/12345';
+            const result = await migrateAvatar(url);
+            expect(result).toBe(url);
         });
     });
 

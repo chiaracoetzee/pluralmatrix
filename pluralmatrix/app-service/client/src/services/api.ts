@@ -27,6 +27,19 @@ export const memberService = {
     delete: (id: string) => api.delete(`/members/${id}`),
     deleteAll: () => api.delete('/members'),
     importPk: (data: any) => api.post('/import/pluralkit', data),
+    exportPk: () => {
+        const token = localStorage.getItem('token');
+        window.open(`${API_BASE}/export/pluralkit?token=${token}`, '_blank');
+    },
+    exportMedia: () => {
+        const token = localStorage.getItem('token');
+        window.open(`${API_BASE}/media/export?token=${token}`, '_blank');
+    },
+    importMedia: (file: File) => {
+        return api.post('/media/import', file, {
+            headers: { 'Content-Type': 'application/zip' }
+        });
+    },
     uploadMedia: (file: File) => {
         return api.post(`/media/upload?filename=${encodeURIComponent(file.name)}`, file, {
             headers: { 'Content-Type': file.type }

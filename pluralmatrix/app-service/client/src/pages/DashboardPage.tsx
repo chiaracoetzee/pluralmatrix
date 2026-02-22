@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { memberService } from '../services/api';
+import { memberService, systemService } from '../services/api';
 import MemberCard from '../components/MemberCard';
 import MemberEditor from '../components/MemberEditor';
 import ImportTool from '../components/ImportTool';
 import SystemSettings from '../components/SystemSettings';
-import { LogOut, Plus, Upload, Search, LayoutGrid, List, Trash2, Settings } from 'lucide-react';
-import { AnimatePresence } from 'framer-motion';
+import { LogOut, Plus, Upload, Search, LayoutGrid, List, Trash2, Download, Image, ChevronDown, Database, Edit3 } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 
 const DashboardPage: React.FC = () => {
     const { user, logout } = useAuth();
+    const [system, setSystem] = useState<any>(null);
     const [members, setMembers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
@@ -17,6 +18,7 @@ const DashboardPage: React.FC = () => {
     const [selectedMember, setSelectedMember] = useState<any>(null);
     const [isImporting, setIsImporting] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isDataMenuOpen, setIsDataMenuOpen] = useState(false);
 
     const fetchMembers = async () => {
         try {
@@ -30,8 +32,18 @@ const DashboardPage: React.FC = () => {
         }
     };
 
+    const fetchSystem = async () => {
+        try {
+            const res = await systemService.get();
+            setSystem(res.data);
+        } catch (e) {
+            console.error('Failed to fetch system');
+        }
+    };
+
     useEffect(() => {
         fetchMembers();
+        fetchSystem();
     }, []);
 
     const handleDelete = async (id: string) => {
@@ -56,6 +68,21 @@ const DashboardPage: React.FC = () => {
         }
     };
 
+    const handleImportMedia = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            try {
+                setLoading(true);
+                const res = await memberService.importMedia(e.target.files[0]);
+                alert(`Successfully imported ${res.data.count} avatars!`);
+                fetchMembers();
+            } catch (err) {
+                alert('Media import failed.');
+            } finally {
+                setLoading(false);
+            }
+        }
+    };
+
     const filteredMembers = members.filter((m: any) => 
         m.name.toLowerCase().includes(search.toLowerCase()) || 
         m.slug.toLowerCase().includes(search.toLowerCase())
@@ -76,12 +103,6 @@ const DashboardPage: React.FC = () => {
                     
                     <div className="flex items-center space-x-4">
                         <button 
-                            onClick={() => setIsSettingsOpen(true)}
-                            className="p-2 hover:bg-white/5 rounded-lg text-matrix-muted hover:text-white transition-colors flex items-center text-sm font-medium"
-                        >
-                            <Settings size={18} className="mr-2" /> Settings
-                        </button>
-                        <button 
                             onClick={logout}
                             className="p-2 hover:bg-white/5 rounded-lg text-matrix-muted hover:text-white transition-colors flex items-center text-sm font-medium"
                         >
@@ -95,29 +116,95 @@ const DashboardPage: React.FC = () => {
                 {/* Hero / Stats */}
                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
                     <div className="space-y-2">
-                        <h2 className="text-4xl font-black tracking-tight">Your System</h2>
-                        <p className="text-matrix-muted font-medium">You have {members.length} registered alters.</p>
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-3 group">
+                                <h2 className="text-4xl font-bold tracking-tight text-white">
+                                    {system?.name || "Your System"}
+                                </h2>
+                                <button 
+                                    onClick={() => setIsSettingsOpen(true)}
+                                    className="p-2 hover:bg-white/5 rounded-full text-matrix-muted hover:text-matrix-primary transition-colors"
+                                    title="Edit System Settings"
+                                >
+                                    <Edit3 size={20} />
+                                </button>
+                            </div>
+                            {system?.systemTag && (
+                                <div className="text-xl font-normal text-matrix-muted/80 flex items-center">
+                                    <span className="bg-white/5 px-2 py-0.5 rounded text-sm uppercase tracking-wider mr-2 text-xs font-bold">Suffix Tag</span>
+                                    {system.systemTag}
+                                </div>
+                            )}
+                        </div>
+                        <p className="text-matrix-muted font-medium mt-4">You have {members.length} registered alters.</p>
                     </div>
                     
                     <div className="flex items-center gap-3">
-                        <button 
-                            onClick={handleDeleteAll}
-                            className="border border-red-500/50 text-red-400 hover:bg-red-500/10 font-semibold py-2 px-6 rounded-lg transition-colors flex items-center text-sm"
-                        >
-                            <Trash2 size={18} className="mr-2" /> Delete All
-                        </button>
-                        <button 
-                            onClick={() => setIsImporting(true)}
-                            className="matrix-button-outline flex items-center"
-                        >
-                            <Upload size={18} className="mr-2" /> Import JSON
-                        </button>
                         <button 
                             onClick={() => { setSelectedMember(null); setIsEditing(true); }}
                             className="matrix-button flex items-center shadow-lg shadow-matrix-primary/20"
                         >
                             <Plus size={18} className="mr-2" /> Add Alter
                         </button>
+
+                        <div className="relative">
+                            <button 
+                                onClick={() => setIsDataMenuOpen(!isDataMenuOpen)}
+                                className="matrix-button-outline flex items-center"
+                            >
+                                <Database size={18} className="mr-2" /> Data <ChevronDown size={16} className={`ml-2 transition-transform ${isDataMenuOpen ? 'rotate-180' : ''}`} />
+                            </button>
+
+                            <AnimatePresence>
+                                {isDataMenuOpen && (
+                                    <>
+                                        <div className="fixed inset-0 z-10" onClick={() => setIsDataMenuOpen(false)} />
+                                        <motion.div 
+                                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                                            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                            className="absolute right-0 mt-2 w-56 bg-matrix-light border border-white/10 rounded-xl shadow-2xl z-20 py-2 overflow-hidden"
+                                        >
+                                            <div className="px-4 py-2 text-[10px] font-bold text-matrix-muted uppercase tracking-wider">Export</div>
+                                            <button 
+                                                onClick={() => { memberService.exportPk(); setIsDataMenuOpen(false); }}
+                                                className="w-full px-4 py-2.5 text-left text-sm hover:bg-white/5 flex items-center transition-colors"
+                                            >
+                                                <Download size={16} className="mr-3 text-matrix-primary" /> Export JSON (PK)
+                                            </button>
+                                            <button 
+                                                onClick={() => { memberService.exportMedia(); setIsDataMenuOpen(false); }}
+                                                className="w-full px-4 py-2.5 text-left text-sm hover:bg-white/5 flex items-center transition-colors"
+                                            >
+                                                <Image size={16} className="mr-3 text-matrix-primary" /> Export Avatars (ZIP)
+                                            </button>
+
+                                            <div className="h-px bg-white/5 my-2" />
+                                            <div className="px-4 py-2 text-[10px] font-bold text-matrix-muted uppercase tracking-wider">Import</div>
+                                            <button 
+                                                onClick={() => { setIsImporting(true); setIsDataMenuOpen(false); }}
+                                                className="w-full px-4 py-2.5 text-left text-sm hover:bg-white/5 flex items-center transition-colors"
+                                            >
+                                                <Upload size={16} className="mr-3 text-matrix-primary" /> Import JSON (PK)
+                                            </button>
+                                            <label className="w-full px-4 py-2.5 text-left text-sm hover:bg-white/5 flex items-center cursor-pointer transition-colors">
+                                                <Upload size={16} className="mr-3 text-matrix-primary" /> Import Avatars (ZIP)
+                                                <input type="file" accept=".zip" onChange={(e) => { handleImportMedia(e); setIsDataMenuOpen(false); }} className="hidden" />
+                                            </label>
+
+                                            <div className="h-px bg-white/5 my-2" />
+                                            <div className="px-4 py-2 text-[10px] font-bold text-red-400 uppercase tracking-wider">Danger Zone</div>
+                                            <button 
+                                                onClick={() => { handleDeleteAll(); setIsDataMenuOpen(false); }}
+                                                className="w-full px-4 py-2.5 text-left text-sm hover:bg-red-400/10 text-red-400 flex items-center transition-colors"
+                                            >
+                                                <Trash2 size={16} className="mr-3" /> Delete All Alters
+                                            </button>
+                                        </motion.div>
+                                    </>
+                                )}
+                            </AnimatePresence>
+                        </div>
                     </div>
                 </div>
 
@@ -189,7 +276,7 @@ const DashboardPage: React.FC = () => {
 
             {isSettingsOpen && (
                 <SystemSettings 
-                    onSave={() => { setIsSettingsOpen(false); fetchMembers(); }}
+                    onSave={() => { setIsSettingsOpen(false); fetchMembers(); fetchSystem(); }}
                     onCancel={() => setIsSettingsOpen(false)}
                 />
             )}
