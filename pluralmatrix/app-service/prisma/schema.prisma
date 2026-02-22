@@ -11,6 +11,7 @@ datasource db {
 model System {
   id        String   @id @default(uuid())
   ownerId   String   @unique // The Matrix User ID (@user:server)
+  slug      String   @unique // Unique identifier for ghost user IDs (e.g. "chiara")
   name      String?
   systemTag String?  // The suffix tag (e.g. ⛩️ Seraphim ⛩️)
   members   Member[]
@@ -22,7 +23,7 @@ model Member {
   id          String   @id @default(uuid())
   systemId    String
   system      System   @relation(fields: [systemId], references: [id])
-  slug        String   @unique // Name-based ID for commands (e.g. "lily")
+  slug        String   // Name-based ID for commands (e.g. "lily")
   name        String
   displayName String?
   avatarUrl   String?
@@ -33,4 +34,6 @@ model Member {
   matrixId    String?  // The Ghost User ID (@_plural_id:server)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@unique([systemId, slug])
 }

@@ -61,7 +61,10 @@ export const loginToMatrix = async (mxid: string, password: string): Promise<boo
  * Generate a JWT for a verified user
  */
 export const generateToken = (mxid: string) => {
-    // Ensure we use the full MXID format
-    const fullMxid = mxid.startsWith('@') ? mxid : `@${mxid}:${process.env.SYNAPSE_DOMAIN || 'localhost'}`;
-    return jwt.sign({ mxid: fullMxid }, JWT_SECRET, { expiresIn: '7d' });
+    // Ensure we use the full MXID format and LOWERCASE it for consistency
+    const domain = process.env.SYNAPSE_DOMAIN || 'localhost';
+    let fullMxid = mxid.includes(':') ? mxid : `@${mxid}:${domain}`;
+    if (!fullMxid.startsWith('@')) fullMxid = `@${fullMxid}`;
+    
+    return jwt.sign({ mxid: fullMxid.toLowerCase() }, JWT_SECRET, { expiresIn: '7d' });
 };

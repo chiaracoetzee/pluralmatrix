@@ -82,7 +82,12 @@ export const startMatrixBot = async () => {
                             await bridge.getIntent().sendText(roomId, "You don't have any alters registered yet.");
                             return;
                         }
-                        const memberList = system.members.map(m => `* **${m.name}** (id: \`${m.slug}\`)`).join("\n");
+                        const sortedMembers = system.members.sort((a, b) => a.slug.localeCompare(b.slug));
+                        const memberList = sortedMembers.map(m => {
+                            const tags = m.proxyTags as any[];
+                            const primaryPrefix = tags.find(t => t.prefix)?.prefix || "None";
+                            return `* **${m.name}** - \`${primaryPrefix}\` (id: \`${m.slug}\`)`;
+                        }).join("\n");
                         await sendRichText(bridge.getIntent(), roomId, `### ${system.name || "Your System"} Members\n${memberList}`);
                         return;
                     }
@@ -134,7 +139,7 @@ export const startMatrixBot = async () => {
                             } catch (e) {}
 
                             try {
-                                const ghostUserId = `@_plural_${member.id}:${DOMAIN}`;
+                                const ghostUserId = `@_plural_${system.slug}_${member.slug}:${DOMAIN}`;
                                 const intent = bridge.getIntent(ghostUserId);
                                 
                                 const finalDisplayName = system.systemTag 

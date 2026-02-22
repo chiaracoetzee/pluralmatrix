@@ -1,9 +1,10 @@
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
+import path from 'path';
 import { startMatrixBot, getBridge, prisma } from './bot';
 import { loginToMatrix, generateToken, authenticateToken, AuthRequest } from './auth';
-import { importFromPluralKit } from './import';
+import { importFromPluralKit, syncGhostProfile } from './import';
 
 const app = express();
 const PORT = process.env.APP_PORT || 9000;
@@ -14,11 +15,15 @@ const HOMESERVER_URL = process.env.SYNAPSE_URL || "http://plural-synapse:8008";
 app.use(cors());
 app.use(bodyParser.json());
 
+// Serve static files from the React app
+const clientPath = path.join(__dirname, '../client/dist');
+app.use(express.static(clientPath));
+
 /**
  * Authentication Endpoint
  */
 app.post('/api/auth/login', async (req, res) => {
-    const { mxid, password } = req.body;
+    let { mxid, password } = req.body;
 
     if (!mxid || !password) {
         return res.status(400).json({ error: 'Missing mxid or password' });
@@ -27,10 +32,21 @@ app.post('/api/auth/login', async (req, res) => {
     const success = await loginToMatrix(mxid, password);
 
     if (success) {
+        // Consistently lowercase and format the MXID
+        mxid = mxid.toLowerCase();
+        if (!mxid.startsWith('@')) mxid = `@${mxid}`;
+        if (!mxid.includes(':')) mxid = `${mxid}:${DOMAIN}`;
+
+        const localpart = mxid.split(':')[0].substring(1);
+
         await prisma.system.upsert({
             where: { ownerId: mxid },
             update: {},
-            create: { ownerId: mxid, name: `${mxid.split(':')[0].substring(1)}'s System` }
+            create: { 
+                ownerId: mxid, 
+                slug: localpart,
+                name: `${localpart}'s System` 
+            }
         });
 
         const token = generateToken(mxid);
@@ -62,6 +78,52 @@ app.post('/api/import/pluralkit', authenticateToken, async (req: AuthRequest, re
 });
 
 /**
+ * System Management API
+ */
+
+// Get current system
+app.get('/api/system', authenticateToken, async (req: AuthRequest, res) => {
+    try {
+        const mxid = req.user!.mxid;
+        let system = await prisma.system.findUnique({
+            where: { ownerId: mxid }
+        });
+
+        if (!system) {
+            const localpart = mxid.split(':')[0].substring(1);
+            system = await prisma.system.create({
+                data: {
+                    ownerId: mxid,
+                    slug: localpart,
+                    name: `${localpart}'s System`
+                }
+            });
+        }
+
+        res.json(system);
+    } catch (e) {
+        console.error('[API] Failed to fetch/create system:', e);
+        res.status(500).json({ error: 'Failed to fetch system' });
+    }
+});
+
+// Update system
+app.patch('/api/system', authenticateToken, async (req: AuthRequest, res) => {
+    try {
+        const mxid = req.user!.mxid;
+        const { name, systemTag, slug } = req.body;
+
+        const updated = await prisma.system.update({
+            where: { ownerId: mxid },
+            data: { name, systemTag, slug }
+        });
+        res.json(updated);
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to update system' });
+    }
+});
+
+/**
  * Member Management API
  */
 
@@ -83,23 +145,28 @@ app.get('/api/members', authenticateToken, async (req: AuthRequest, res) => {
 app.post('/api/members', authenticateToken, async (req: AuthRequest, res) => {
     try {
         const mxid = req.user!.mxid;
-        const { name, displayName, avatarUrl, proxyTags } = req.body;
+        const { name, displayName, avatarUrl, proxyTags, slug: providedSlug } = req.body;
 
         const system = await prisma.system.findUnique({ where: { ownerId: mxid } });
         if (!system) return res.status(404).json({ error: 'System not found' });
 
-        const baseSlug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        const baseSlug = providedSlug || name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        const slug = providedSlug ? baseSlug : `${baseSlug}-${Date.now()}`;
 
         const member = await prisma.member.create({
             data: {
                 systemId: system.id,
-                slug: `${baseSlug}-${Date.now()}`, 
+                slug: slug, 
                 name,
                 displayName,
                 avatarUrl,
                 proxyTags: proxyTags || []
             }
         });
+
+        // Sync profile to Matrix
+        await syncGhostProfile(member, system);
+
         res.json(member);
     } catch (e) {
         console.error(e);
@@ -121,8 +188,13 @@ app.patch('/api/members/:id', authenticateToken, async (req: AuthRequest, res) =
 
         const updated = await prisma.member.update({
             where: { id },
-            data: updateData
+            data: updateData,
+            include: { system: true }
         });
+
+        // Sync updated profile to Matrix
+        await syncGhostProfile(updated, updated.system);
+
         res.json(updated);
     } catch (e) {
         res.status(500).json({ error: 'Failed to update member' });
@@ -147,9 +219,24 @@ app.delete('/api/members/:id', authenticateToken, async (req: AuthRequest, res) 
     }
 });
 
+// Bulk delete all members for user
+app.delete('/api/members', authenticateToken, async (req: AuthRequest, res) => {
+    try {
+        const mxid = req.user!.mxid;
+        await prisma.member.deleteMany({
+            where: { system: { ownerId: mxid } }
+        });
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to delete all members' });
+    }
+});
+
 /**
- * Media Proxy Endpoint
+ * Media Proxy Endpoints
  */
+
+// Upload Proxy
 app.post('/api/media/upload', authenticateToken, express.raw({ type: 'image/*', limit: '10mb' }), async (req: any, res) => {
     try {
         const filename = (req.query.filename as string) || 'upload.png';
@@ -176,6 +263,28 @@ app.post('/api/media/upload', authenticateToken, express.raw({ type: 'image/*', 
     }
 });
 
+// Download Proxy (to avoid CORS)
+app.get('/api/media/download/:server/:mediaId', async (req, res) => {
+    try {
+        const { server, mediaId } = req.params;
+        // Modern Synapse requires authenticated media download via /client/v1/
+        const response = await fetch(`${HOMESERVER_URL}/_matrix/client/v1/media/download/${server}/${mediaId}`, {
+            headers: {
+                'Authorization': `Bearer ${AS_TOKEN}`
+            }
+        });
+        
+        if (!response.ok) return res.sendStatus(response.status);
+        
+        res.setHeader('Content-Type', response.headers.get('content-type') || 'image/png');
+        const buffer = await response.arrayBuffer();
+        res.send(Buffer.from(buffer));
+    } catch (e) {
+        console.error('[Media] Download proxy failed:', e);
+        res.sendStatus(500);
+    }
+});
+
 /**
  * Existing Check Endpoint
  */
@@ -187,46 +296,62 @@ app.post('/check', async (req, res) => {
         return res.json({ action: "ALLOW" });
     }
 
+    const cleanSender = sender.toLowerCase();
+
     try {
         const system = await prisma.system.findUnique({
-            where: { ownerId: sender },
+            where: { ownerId: cleanSender },
             include: { members: true }
         });
 
-        if (!system) return res.json({ action: "ALLOW" });
+        if (!system) {
+            return res.json({ action: "ALLOW" });
+        }
 
         for (const member of system.members) {
             const tags = member.proxyTags as any[];
             for (const tag of tags) {
                 if (body.startsWith(tag.prefix) && (tag.suffix ? body.endsWith(tag.suffix) : true)) {
                     const cleanContent = body.slice(tag.prefix.length, body.length - (tag.suffix?.length || 0)).trim();
-                    if (!cleanContent) return res.json({ action: "ALLOW" });
+                    if (!cleanContent) continue;
 
-                    console.log(`[API] MATCH FOUND! Member: ${member.name}. Clean content: "${cleanContent}"`);
+                    console.log(`[API] PROXY MATCH! Member: ${member.name} (${member.slug}) for sender ${sender}`);
 
+                    // Trigger Ghost (Async)
                     (async () => {
                         try {
                             const bridge = getBridge();
-                            if (bridge) {
-                                const ghostUserId = `@_plural_${member.id}:${DOMAIN}`;
-                                const intent = bridge.getIntent(ghostUserId);
-                                
-                                try { await intent.ensureRegistered(); } catch(e) {}
-                                await intent.join(room_id);
-
-                                // Update Profile with System Tag Suffix
-                                const finalDisplayName = system.systemTag 
-                                    ? `${member.displayName || member.name} ${system.systemTag}`
-                                    : (member.displayName || member.name);
-
-                                await intent.setDisplayName(finalDisplayName);
-                                if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
-                                
-                                await new Promise(r => setTimeout(r, 200));
-                                await intent.sendText(room_id, cleanContent);
+                            if (!bridge) {
+                                console.error("[API] Bridge not initialized!");
+                                return;
                             }
-                        } catch (e) { 
-                            console.error("[API] Async Ghost Error:", e); 
+
+                            // Use slug for cleaner MXIDs if possible, or fallback to UUID
+                            const ghostUserId = `@_plural_${system.slug}_${member.slug}:${DOMAIN}`;
+                            console.log(`[API] Sending ghost message as ${ghostUserId}`);
+                            
+                            const intent = bridge.getIntent(ghostUserId);
+                            
+                            try { 
+                                await intent.ensureRegistered(); 
+                            } catch(e: any) {
+                                if (e.errcode !== 'M_USER_IN_USE') console.error("[API] Registration error:", e.message);
+                            }
+                            
+                            await intent.join(room_id);
+
+                            const finalDisplayName = system.systemTag 
+                                ? `${member.displayName || member.name} ${system.systemTag}`
+                                : (member.displayName || member.name);
+
+                            await intent.setDisplayName(finalDisplayName);
+                            if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
+                            
+                            await new Promise(r => setTimeout(r, 100));
+                            await intent.sendText(room_id, cleanContent);
+                            console.log(`[API] Ghost message sent!`);
+                        } catch (e: any) { 
+                            console.error("[API] Ghost Error:", e.message || e); 
                         }
                     })();
 
@@ -241,8 +366,13 @@ app.post('/check', async (req, res) => {
     }
 });
 
+// All other requests will return the React app
+app.use((req, res) => {
+    res.sendFile(path.join(clientPath, 'index.html'));
+});
+
 if (require.main === module) {
-    startMatrixBot().then(() => {
+    startMatrixBot().then(async () => {
         app.listen(PORT, () => {
             console.log(`App Service (Brain) listening on port ${PORT}`);
         });
