@@ -21,7 +21,7 @@ async function main() {
                     {
                         name: "Lily",
                         displayName: "Lily 🌸",
-                        avatarUrl: "", // Optional: Add an mxc:// URL here
+                        avatarUrl: "mxc://localhost/FEjbXVVMcuGXyuFLmMfgjsLL", 
                         proxyTags: [
                             { prefix: "[Lily]" },
                             { prefix: "l;", suffix: "" } 
@@ -40,6 +40,13 @@ async function main() {
     });
 
     console.log("Created System:", system);
+
+    // 3. Update Lily's avatar if she exists
+    await prisma.member.updateMany({
+        where: { systemId: system.id, name: "Lily" },
+        data: { avatarUrl: "mxc://localhost/FEjbXVVMcuGXyuFLmMfgjsLL" }
+    });
+
     const members = await prisma.member.findMany({ where: { systemId: system.id } });
     console.log("Created Members:", members);
 }
