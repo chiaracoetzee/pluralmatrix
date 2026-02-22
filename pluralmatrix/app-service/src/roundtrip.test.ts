@@ -1,21 +1,34 @@
-import { importFromPluralKit, exportToPluralKit, stringifyWithEscapedUnicode } from './import';
+import { importFromPluralKit, exportToPluralKit, stringifyWithEscapedUnicode, exportAvatarsZip, importAvatarsZip } from './import';
 import { prisma } from './bot';
+import { PassThrough } from 'stream';
+import AdmZip from 'adm-zip';
+
+// Stable mocks for deep nesting
+const mockBotClient = {
+    uploadContent: jest.fn().mockResolvedValue('mxc://mock')
+};
+
+const mockIntent = {
+    ensureRegistered: jest.fn(),
+    setDisplayName: jest.fn(),
+    setAvatarUrl: jest.fn(),
+    leave: jest.fn(),
+    matrixClient: {
+        getJoinedRooms: jest.fn(),
+    }
+};
+
+const mockBridge = {
+    getBot: () => ({
+        getClient: () => mockBotClient
+    }),
+    getIntent: jest.fn().mockReturnValue(mockIntent)
+};
 
 // Mock bot dependencies
 jest.mock('./bot', () => ({
     ...jest.requireActual('./bot'),
-    getBridge: jest.fn().mockReturnValue({
-        getBot: () => ({
-            getClient: () => ({
-                uploadContent: jest.fn().mockResolvedValue('mxc://mock')
-            })
-        }),
-        getIntent: jest.fn().mockReturnValue({
-            ensureRegistered: jest.fn(),
-            setDisplayName: jest.fn(),
-            setAvatarUrl: jest.fn()
-        })
-    }),
+    getBridge: jest.fn(() => mockBridge),
     prisma: {
         system: {
             upsert: jest.fn(),
@@ -24,11 +37,16 @@ jest.mock('./bot', () => ({
         member: {
             upsert: jest.fn(),
             findMany: jest.fn(),
+            update: jest.fn(),
         },
     },
 }));
 
 describe('PluralKit Roundtrip', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
     it('should import and then export with consistent data', async () => {
         const mockPkData = {
             version: 2,
@@ -104,6 +122,64 @@ describe('PluralKit Roundtrip', () => {
             const parsed = JSON.parse(escaped);
             expect(parsed.name).toBe("Lily 🌸");
             expect(parsed.role).toBe("Goddess é");
+        });
+    });
+
+    describe('Avatar ZIP Roundtrip', () => {
+        it('should export avatars to a ZIP stream', async () => {
+            const mockSystem = {
+                ownerId: '@user:localhost',
+                members: [
+                    { name: 'Alice', avatarUrl: 'mxc://localhost/media1' }
+                ]
+            };
+            (prisma.system.findUnique as jest.Mock).mockResolvedValue(mockSystem);
+
+            // Mock fetch for the media download
+            global.fetch = jest.fn().mockResolvedValue({
+                ok: true,
+                headers: new Map([['content-type', 'image/png']]),
+                arrayBuffer: () => Promise.resolve(Buffer.from('fake-image-data'))
+            });
+
+            const zipStream = new PassThrough();
+            const chunks: any[] = [];
+            zipStream.on('data', (chunk) => chunks.push(chunk));
+
+            await exportAvatarsZip('@user:localhost', zipStream);
+
+            const zipBuffer = Buffer.concat(chunks);
+            const zip = new AdmZip(zipBuffer);
+            const entries = zip.getEntries();
+
+            expect(entries).toHaveLength(1);
+            expect(entries[0].entryName).toBe('media1.png');
+        });
+
+        it('should import avatars from a ZIP and update members', async () => {
+            const mockSystem = {
+                id: 'sys1',
+                slug: 'mysys',
+                members: [
+                    { id: 'm1', slug: 'alice', avatarUrl: 'mxc://old/media1' }
+                ]
+            };
+            (prisma.system.findUnique as jest.Mock).mockResolvedValue(mockSystem);
+            (prisma.member.update as jest.Mock).mockResolvedValue({ id: 'm1', avatarUrl: 'mxc://new/uploaded' });
+
+            const zip = new AdmZip();
+            zip.addFile('media1.png', Buffer.from('image-content'));
+            const zipBuffer = zip.toBuffer();
+
+            mockBotClient.uploadContent.mockResolvedValue('mxc://new/uploaded');
+
+            const count = await importAvatarsZip('@user:localhost', zipBuffer);
+
+            expect(count).toBe(1);
+            expect(prisma.member.update).toHaveBeenCalledWith(expect.objectContaining({
+                where: { id: 'm1' },
+                data: { avatarUrl: 'mxc://new/uploaded' }
+            }));
         });
     });
 });
