@@ -115,7 +115,7 @@ describe('Importer Logic', () => {
             const m = result.members[0];
             expect(m.name).toBe('Lily');
             expect(m.display_name).toBe('Lily Override');
-            expect(m.id).toBe('lilyx'); // 5-char pad logic
+            expect(m.id).toBe('lily'); // No truncation/pad logic anymore
             expect(m.proxy_tags).toEqual([{ prefix: 'l:', suffix: '' }]);
             expect(m.privacy.visibility).toBe('public');
         });

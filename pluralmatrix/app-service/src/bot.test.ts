@@ -1,5 +1,12 @@
 import { handleEvent } from './bot';
 import { Request } from 'matrix-appservice-bridge';
+import { proxyCache } from './services/cache';
+
+jest.mock('./services/cache', () => ({
+    proxyCache: {
+        getSystemRules: jest.fn(),
+    }
+}));
 
 // Mock everything needed for the bot logic
 const mockIntent = {
@@ -69,7 +76,7 @@ describe('Bot Event Handler', () => {
 
     describe('Commands', () => {
         it('should handle pk;list command', async () => {
-            (mockPrisma.system.findUnique as jest.Mock).mockResolvedValue({
+            (proxyCache.getSystemRules as jest.Mock).mockResolvedValue({
                 name: 'Test System',
                 members: [
                     { name: 'Alice', slug: 'alice', proxyTags: [{ prefix: 'a:' }] },
@@ -89,11 +96,16 @@ describe('Bot Event Handler', () => {
         });
 
         it('should handle pk;member command', async () => {
-            (mockPrisma.member.findFirst as jest.Mock).mockResolvedValue({
-                name: 'Alice',
-                slug: 'alice',
-                description: 'A test member',
-                proxyTags: [{ prefix: 'a:' }]
+            (proxyCache.getSystemRules as jest.Mock).mockResolvedValue({
+                name: 'Test System',
+                members: [
+                    {
+                        name: 'Alice',
+                        slug: 'alice',
+                        description: 'A test member',
+                        proxyTags: [{ prefix: 'a:' }]
+                    }
+                ]
             });
 
             const req = createRequest({ body: 'pk;member alice' });
