@@ -338,17 +338,35 @@ app.post('/check', async (req, res) => {
                                 if (e.errcode !== 'M_USER_IN_USE') console.error("[API] Registration error:", e.message);
                             }
                             
-                            await intent.join(room_id);
-
                             const finalDisplayName = system.systemTag 
                                 ? `${member.displayName || member.name} ${system.systemTag}`
                                 : (member.displayName || member.name);
 
-                            await intent.setDisplayName(finalDisplayName);
-                            if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
+                            // Strategy: Explicit Join Payload (Keep this, it's good practice)
+                            try {
+                                await intent.sendStateEvent(room_id, "m.room.member", ghostUserId, {
+                                    membership: "join",
+                                    displayname: finalDisplayName,
+                                    avatar_url: member.avatarUrl || undefined
+                                });
+                            } catch (joinError) {
+                                await intent.join(room_id);
+                                await intent.setDisplayName(finalDisplayName);
+                                if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
+                            }
                             
-                            await new Promise(r => setTimeout(r, 100));
+                            // Strategy: The "Typing Feint"
+                            // Force client to resolve user profile via typing indicator before message arrives.
+                            try {
+                                await intent.sendTyping(room_id, true);
+                                await new Promise(r => setTimeout(r, 200)); // Brief pause to let client process
+                                await intent.sendTyping(room_id, false);
+                            } catch (e) {
+                                // Ignore typing errors
+                            }
+
                             await intent.sendText(room_id, cleanContent);
+
                             console.log(`[API] Ghost message sent!`);
                         } catch (e: any) { 
                             console.error("[API] Ghost Error:", e.message || e); 

@@ -20,6 +20,8 @@ COPY . .
 RUN npx prisma generate
 RUN npx tsc
 
-EXPOSE 9000
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-CMD ["node", "dist/index.js"]
+EXPOSE 9000
+ENTRYPOINT ["docker-entrypoint.sh"]

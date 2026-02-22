@@ -35,6 +35,11 @@ export const startMatrixBot = async () => {
         homeserverUrl: HOMESERVER_URL,
         domain: DOMAIN,
         registration: REGISTRATION_PATH,
+        intentOptions: {
+            clients: { 
+                dontCheckPowerLevel: true
+            }
+        },
         controller: {
             onUserQuery: function (queriedUser) {
                 return {}; // Auto-create users
@@ -146,8 +151,18 @@ export const startMatrixBot = async () => {
                                     ? `${member.displayName || member.name} ${system.systemTag}`
                                     : (member.displayName || member.name);
 
-                                await intent.setDisplayName(finalDisplayName);
-                                if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
+                                try {
+                                    await intent.sendStateEvent(roomId, "m.room.member", ghostUserId, {
+                                        membership: "join",
+                                        displayname: finalDisplayName,
+                                        avatar_url: member.avatarUrl || undefined
+                                    });
+                                } catch (joinError) {
+                                    await intent.join(roomId);
+                                    await intent.setDisplayName(finalDisplayName);
+                                    if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
+                                }
+
                                 await intent.sendText(roomId, cleanContent);
                             } catch (e) {}
                             

@@ -30,3 +30,4 @@ Thumbs.db
 # Docker
 .dockercache
 pluralmatrix/synapse/modules/plural_gatekeeper.py~
+*:Zone.Identifier
