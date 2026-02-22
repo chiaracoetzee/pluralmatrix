@@ -5,6 +5,30 @@ import path from 'path';
 import { startMatrixBot, getBridge, prisma } from './bot';
 import { loginToMatrix, generateToken, authenticateToken, AuthRequest } from './auth';
 import { importFromPluralKit, syncGhostProfile, decommissionGhost, exportToPluralKit, stringifyWithEscapedUnicode, exportAvatarsZip, importAvatarsZip } from './import';
+import { proxyCache } from './services/cache';
+import { z } from 'zod';
+
+const ProxyTagSchema = z.object({
+    prefix: z.string().min(1),
+    suffix: z.string().optional().nullable()
+});
+
+const MemberSchema = z.object({
+    name: z.string().min(1),
+    displayName: z.string().optional().nullable(),
+    avatarUrl: z.string().optional().nullable(),
+    proxyTags: z.array(ProxyTagSchema).optional(),
+    slug: z.string().optional(),
+    description: z.string().optional().nullable(),
+    pronouns: z.string().optional().nullable(),
+    color: z.string().optional().nullable()
+});
+
+const SystemSchema = z.object({
+    name: z.string().optional().nullable(),
+    systemTag: z.string().optional().nullable(),
+    slug: z.string().optional()
+});
 
 const app = express();
 const PORT = process.env.APP_PORT || 9000;
@@ -49,6 +73,9 @@ app.post('/api/auth/login', async (req, res) => {
             }
         });
 
+        // Invalidate cache to ensure new system is picked up if needed
+        proxyCache.invalidate(mxid);
+
         const token = generateToken(mxid);
         return res.json({ token, mxid });
     } else {
@@ -70,6 +97,7 @@ app.post('/api/import/pluralkit', authenticateToken, async (req: AuthRequest, re
     try {
         const mxid = req.user!.mxid;
         const count = await importFromPluralKit(mxid, req.body);
+        proxyCache.invalidate(mxid); // Invalidate after import
         res.json({ success: true, count });
     } catch (e) {
         console.error('[API] Import failed:', e);
@@ -109,6 +137,7 @@ app.post('/api/media/import', authenticateToken, express.raw({ type: 'applicatio
     try {
         const mxid = req.user!.mxid;
         const count = await importAvatarsZip(mxid, req.body);
+        proxyCache.invalidate(mxid); // Invalidate after avatar updates
         res.json({ success: true, count });
     } catch (e) {
         console.error('[API] Media import failed:', e);
@@ -150,12 +179,13 @@ app.get('/api/system', authenticateToken, async (req: AuthRequest, res) => {
 app.patch('/api/system', authenticateToken, async (req: AuthRequest, res) => {
     try {
         const mxid = req.user!.mxid;
-        const { name, systemTag, slug } = req.body;
+        const { name, systemTag, slug } = SystemSchema.parse(req.body);
 
         const updated = await prisma.system.update({
             where: { ownerId: mxid },
             data: { name, systemTag, slug }
         });
+        proxyCache.invalidate(mxid);
         res.json(updated);
     } catch (e) {
         res.status(500).json({ error: 'Failed to update system' });
@@ -184,7 +214,7 @@ app.get('/api/members', authenticateToken, async (req: AuthRequest, res) => {
 app.post('/api/members', authenticateToken, async (req: AuthRequest, res) => {
     try {
         const mxid = req.user!.mxid;
-        const { name, displayName, avatarUrl, proxyTags, slug: providedSlug, description, pronouns, color } = req.body;
+        const { name, displayName, avatarUrl, proxyTags, slug: providedSlug, description, pronouns, color } = MemberSchema.parse(req.body);
 
         const system = await prisma.system.findUnique({ where: { ownerId: mxid } });
         if (!system) return res.status(404).json({ error: 'System not found' });
@@ -209,6 +239,7 @@ app.post('/api/members', authenticateToken, async (req: AuthRequest, res) => {
         // Sync profile to Matrix
         await syncGhostProfile(member, system);
 
+        proxyCache.invalidate(mxid);
         res.json(member);
     } catch (e) {
         console.error(e);
@@ -221,7 +252,7 @@ app.patch('/api/members/:id', authenticateToken, async (req: AuthRequest, res) =
     try {
         const mxid = req.user!.mxid;
         const id = req.params.id as string;
-        const updateData = req.body;
+        const updateData = MemberSchema.partial().parse(req.body);
 
         const member = await prisma.member.findFirst({
             where: { id, system: { ownerId: mxid } }
@@ -232,11 +263,12 @@ app.patch('/api/members/:id', authenticateToken, async (req: AuthRequest, res) =
             where: { id },
             data: updateData,
             include: { system: true }
-        });
+        }) as any;
 
         // Sync updated profile to Matrix
         await syncGhostProfile(updated, updated.system);
 
+        proxyCache.invalidate(mxid);
         res.json(updated);
     } catch (e) {
         res.status(500).json({ error: 'Failed to update member' });
@@ -259,6 +291,7 @@ app.delete('/api/members/:id', authenticateToken, async (req: AuthRequest, res) 
         decommissionGhost(member, member.system);
 
         await prisma.member.delete({ where: { id } });
+        proxyCache.invalidate(mxid);
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: 'Failed to delete member' });
@@ -283,6 +316,7 @@ app.delete('/api/members', authenticateToken, async (req: AuthRequest, res) => {
         await prisma.member.deleteMany({
             where: { system: { ownerId: mxid } }
         });
+        proxyCache.invalidate(mxid);
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: 'Failed to delete all members' });
@@ -356,10 +390,7 @@ app.post('/check', async (req, res) => {
     const cleanSender = sender.toLowerCase();
 
     try {
-        const system = await prisma.system.findUnique({
-            where: { ownerId: cleanSender },
-            include: { members: true }
-        });
+        const system = await proxyCache.getSystemRules(cleanSender, prisma);
 
         if (!system) {
             return res.json({ action: "ALLOW" });

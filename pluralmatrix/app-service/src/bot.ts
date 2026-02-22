@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import * as yaml from "js-yaml";
 import * as fs from "fs";
 import { marked } from "marked";
+import { proxyCache } from "./services/cache";
 
 // Initialize Prisma
 export const prisma = new PrismaClient();
@@ -61,10 +62,7 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
 
         // 1. pk;list - List all alters
         if (cmd === "list") {
-            const system = await prismaClient.system.findUnique({
-                where: { ownerId: sender },
-                include: { members: true }
-            });
+            const system = await proxyCache.getSystemRules(sender, prismaClient);
             if (!system || system.members.length === 0) {
                 await bridgeInstance.getIntent().sendText(roomId, "You don't have any alters registered yet.");
                 return;
@@ -82,9 +80,9 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
         // 2. pk;member <slug> - Show details
         if (cmd === "member" && parts[1]) {
             const slug = parts[1].toLowerCase();
-            const member = await prismaClient.member.findFirst({
-                where: { slug, system: { ownerId: sender } }
-            });
+            const system = await proxyCache.getSystemRules(sender, prismaClient);
+            const member = system?.members.find(m => m.slug === slug);
+            
             if (!member) {
                 await bridgeInstance.getIntent().sendText(roomId, `No member found with ID: ${slug}`);
                 return;
@@ -104,10 +102,7 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
     }
     
     // --- JANITOR LOGIC (Backup for non-blocking path) ---
-    const system = await prismaClient.system.findUnique({
-        where: { ownerId: sender },
-        include: { members: true }
-    });
+    const system = await proxyCache.getSystemRules(sender, prismaClient);
 
     if (!system) return;
 
