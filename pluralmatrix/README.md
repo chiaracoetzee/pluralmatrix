@@ -5,49 +5,56 @@ A high-performance Matrix Application Service for Plurality, featuring **"Zero F
 ## Architecture
 
 *   **Synapse (Homeserver):** Runs the core chat server.
-*   **Gatekeeper Module (Python):** Intercepts messages *before* they are saved. It asks the App Service if the message should be proxied.
+*   **Gatekeeper Module (Python):** Intercepts messages *before* they are saved. It asks the App Service if the message should be proxied. If so, it rewrites the original message to be blank.
 *   **App Service (Node.js):**
     *   **Brain:** Checks if a message matches a member's proxy tags.
     *   **Bridge:** Controls "Ghost" users (`@_plural_...`) to send messages on behalf of members.
+    *   **Janitor:** Automatically redacts the blanked-out original messages for a clean timeline.
     *   **Database:** PostgreSQL (stores Systems, Members, and Tags).
 
-## Getting Started
+## Setup & Installation
 
-### 1. Start the Stack
+### 1. Configure Secrets
+PluralMatrix requires several configuration files that contain secrets. Templates are provided:
+
+1.  **Environment Variables**: 
+    `cp .env.example .env` and fill in your database passwords and Matrix domain.
+2.  **Synapse Config**: 
+    `cp pluralmatrix/synapse/config/homeserver.yaml.example pluralmatrix/synapse/config/homeserver.yaml`. 
+    *Note: You must replace all "REPLACE_ME" tokens with secure strings.*
+3.  **App Service Registration**: 
+    `cp pluralmatrix/synapse/config/app-service-registration.yaml.example pluralmatrix/synapse/config/app-service-registration.yaml`.
+    *Note: The tokens here must match what you put in your `.env` and `homeserver.yaml`.*
+4.  **Signing Key**:
+    Synapse requires a `localhost.signing.key`. If you don't have one, you can generate it using the Synapse image:
+    `sudo docker run -it --rm -v $(pwd)/pluralmatrix/synapse/config:/data matrixdotorg/synapse:latest generate`
+
+### 2. Start the Stack
+Run the helper script to build and launch everything:
 ```bash
 cd pluralmatrix
-sudo docker-compose up -d
-# Note: If the app-service fails, run: sudo docker start plural-app-service
+./restart-stack.sh
 ```
 
-### 2. Create an Admin User
-You need a Matrix account to test this. Run this command to register a user on your new local server:
-
+### 3. Create an Admin User
+Register a user on your new local server:
 ```bash
 sudo docker exec -it plural-synapse register_new_matrix_user -c /data/homeserver.yaml http://localhost:8008
-# Follow the prompts. Make the user admin.
-# Example User: @admin:localhost
 ```
 
-### 3. Seed the Database
-Since the Web UI is not fully connected yet, use this script to create a test System and Member for your new user.
+### 4. Seed the Database
+```bash
+sudo docker exec -it plural-app-service npx ts-node seed-db.ts
+```
 
-1.  Edit `pluralmatrix/app-service/seed-db.ts` and change `OWNER_ID` to match the user you just created (e.g., `@admin:localhost`).
-2.  Run the seed script:
-    ```bash
-    # You need to run this inside the container or have node installed locally
-    # Easiest way is inside the container:
-    sudo docker exec -it plural-app-service npx ts-node seed-db.ts
-    ```
-
-### 4. Test It!
-1.  Open a Matrix Client (e.g., [Element Web](https://app.element.io)).
-2.  Change the Homeserver URL to `http://localhost:8008` (if running locally) or your server's IP.
-3.  Log in as `@admin:localhost`.
-4.  Join a room (or create one).
-5.  Type: `[Lily] Hello world`
-6.  **Magic:** You should see **Lily 🌸** say "Hello world" instantly. Your original message will never appear.
+## Testing
+1.  Open a Matrix Client (e.g., [Element](https://app.element.io) or [Cinny](https://app.cinny.in)).
+2.  Connect to your server (e.g. `http://localhost:8008`).
+3.  Invite `@plural_bot:localhost` to a room.
+4.  Type: `[Lily] Hello world`
+5.  **Result:** You should see **Lily 🌸** say "Hello world". Your original message will be blanked and then redacted.
 
 ## Troubleshooting
-*   **Logs:** `sudo docker logs plural-app-service`
-*   **Restart:** `sudo docker-compose restart`
+* **Logs:** `sudo docker logs -f plural-app-service`
+* **Synapse Logs:** `sudo docker logs -f plural-synapse`
+* **Restart:** `./restart-stack.sh`

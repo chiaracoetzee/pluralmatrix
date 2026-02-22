@@ -1,0 +1,12 @@
+id: REPLACE_WITH_UNIQUE_ID
+hs_token: REPLACE_WITH_SECURE_TOKEN
+as_token: REPLACE_WITH_SECURE_TOKEN
+url: http://plural-app-service:8008
+sender_localpart: plural_bot
+namespaces:
+  users:
+    - exclusive: true
+      regex: '@_plural_.*'
+  aliases:
+    - exclusive: true
+      regex: '#_plural_.*'
