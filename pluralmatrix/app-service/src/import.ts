@@ -170,8 +170,13 @@ export const decommissionGhost = async (member: any, system: any) => {
 export const importFromPluralKit = async (mxid: string, jsonData: any) => {
     console.log(`[Importer] Starting import for ${mxid}`);
 
+    const isPluralMatrix = jsonData.config?.pluralmatrix_version !== undefined;
     const localpart = mxid.split(':')[0].substring(1);
-    const systemSlug = generateSlug(jsonData.name || localpart, localpart);
+    
+    // If it's a PluralMatrix export, reuse the exact system slug provided
+    const systemSlug = (isPluralMatrix && jsonData.id) 
+        ? jsonData.id 
+        : generateSlug(jsonData.name || localpart, localpart);
 
     const system = await prisma.system.upsert({
         where: { ownerId: mxid },
@@ -192,7 +197,9 @@ export const importFromPluralKit = async (mxid: string, jsonData: any) => {
     const slugGroups: Record<string, any[]> = {};
 
     for (const member of rawMembers) {
-        let baseSlug = generateSlug(member.name, ""); 
+        let baseSlug = (isPluralMatrix && member.id) 
+            ? member.id 
+            : generateSlug(member.name, ""); 
         
         if (!baseSlug) {
             const extractedName = extractNameFromDescription(member.description);
@@ -311,7 +318,7 @@ export const exportToPluralKit = async (mxid: string) => {
 
     const pkExport = {
         version: 2,
-        id: system.slug.substring(0, 5),
+        id: system.slug,
         uuid: system.id,
         name: system.name,
         description: null, // We don't store system description yet
@@ -334,6 +341,7 @@ export const exportToPluralKit = async (mxid: string) => {
             front_history_privacy: "public"
         },
         config: {
+            pluralmatrix_version: 1,
             timezone: "UTC",
             pings_enabled: true,
             latch_timeout: null,
@@ -354,7 +362,7 @@ export const exportToPluralKit = async (mxid: string) => {
         },
         accounts: [],
         members: system.members.map(m => ({
-            id: m.slug.substring(0, 5).padEnd(5, 'x'),
+            id: m.slug,
             uuid: m.id,
             name: m.name,
             display_name: m.displayName,

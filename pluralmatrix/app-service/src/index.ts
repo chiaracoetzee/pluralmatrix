@@ -7,28 +7,11 @@ import { loginToMatrix, generateToken, authenticateToken, AuthRequest } from './
 import { importFromPluralKit, syncGhostProfile, decommissionGhost, exportToPluralKit, stringifyWithEscapedUnicode, exportAvatarsZip, importAvatarsZip } from './import';
 import { proxyCache } from './services/cache';
 import { z } from 'zod';
-
-const ProxyTagSchema = z.object({
-    prefix: z.string().min(1),
-    suffix: z.string().optional().nullable()
-});
-
-const MemberSchema = z.object({
-    name: z.string().min(1),
-    displayName: z.string().optional().nullable(),
-    avatarUrl: z.string().optional().nullable(),
-    proxyTags: z.array(ProxyTagSchema).optional(),
-    slug: z.string().optional(),
-    description: z.string().optional().nullable(),
-    pronouns: z.string().optional().nullable(),
-    color: z.string().optional().nullable()
-});
-
-const SystemSchema = z.object({
-    name: z.string().optional().nullable(),
-    systemTag: z.string().optional().nullable(),
-    slug: z.string().optional()
-});
+import { MemberSchema, SystemSchema } from './schemas/member';
+import { LoginSchema } from './schemas/auth';
+import { PluralKitImportSchema } from './schemas/import';
+import { MediaUploadSchema } from './schemas/media';
+import { GatekeeperCheckSchema } from './schemas/gatekeeper';
 
 const app = express();
 const PORT = process.env.APP_PORT || 9000;
@@ -47,13 +30,10 @@ app.use(express.static(clientPath));
  * Authentication Endpoint
  */
 app.post('/api/auth/login', async (req, res) => {
-    let { mxid, password } = req.body;
+    try {
+        let { mxid, password } = LoginSchema.parse(req.body);
 
-    if (!mxid || !password) {
-        return res.status(400).json({ error: 'Missing mxid or password' });
-    }
-
-    const success = await loginToMatrix(mxid, password);
+        const success = await loginToMatrix(mxid, password);
 
     if (success) {
         // Consistently lowercase and format the MXID
@@ -81,6 +61,9 @@ app.post('/api/auth/login', async (req, res) => {
     } else {
         return res.status(401).json({ error: 'Invalid Matrix credentials' });
     }
+    } catch (e) {
+        return res.status(400).json({ error: 'Invalid input format' });
+    }
 });
 
 /**
@@ -96,12 +79,13 @@ app.get('/api/auth/me', authenticateToken, (req: AuthRequest, res) => {
 app.post('/api/import/pluralkit', authenticateToken, async (req: AuthRequest, res) => {
     try {
         const mxid = req.user!.mxid;
-        const count = await importFromPluralKit(mxid, req.body);
+        const jsonData = PluralKitImportSchema.parse(req.body);
+        const count = await importFromPluralKit(mxid, jsonData);
         proxyCache.invalidate(mxid); // Invalidate after import
         res.json({ success: true, count });
     } catch (e) {
         console.error('[API] Import failed:', e);
-        res.status(500).json({ error: 'Import failed' });
+        res.status(400).json({ error: 'Invalid PluralKit JSON format' });
     }
 });
 
@@ -330,10 +314,10 @@ app.delete('/api/members', authenticateToken, async (req: AuthRequest, res) => {
 // Upload Proxy
 app.post('/api/media/upload', authenticateToken, express.raw({ type: 'image/*', limit: '10mb' }), async (req: any, res) => {
     try {
-        const filename = (req.query.filename as string) || 'upload.png';
+        const { filename } = MediaUploadSchema.parse(req.query);
         const contentType = req.headers['content-type'] || 'image/png';
 
-        const response = await fetch(`${HOMESERVER_URL}/_matrix/media/v3/upload?filename=${filename}`, {
+        const response = await fetch(`${HOMESERVER_URL}/_matrix/media/v3/upload?filename=${encodeURIComponent(filename)}`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${AS_TOKEN}`,
@@ -380,16 +364,12 @@ app.get('/api/media/download/:server/:mediaId', async (req, res) => {
  * Existing Check Endpoint
  */
 app.post('/check', async (req, res) => {
-    const { sender, content, room_id } = req.body;
-    const body = content?.body || "";
-
-    if (!body || !sender || !room_id) {
-        return res.json({ action: "ALLOW" });
-    }
-
-    const cleanSender = sender.toLowerCase();
-
     try {
+        const { sender, content, room_id } = GatekeeperCheckSchema.parse(req.body);
+        const body = content?.body || "";
+
+        const cleanSender = sender.toLowerCase();
+
         const system = await proxyCache.getSystemRules(cleanSender, prisma);
 
         if (!system) {
@@ -456,7 +436,7 @@ app.post('/check', async (req, res) => {
         }
         return res.json({ action: "ALLOW" });
     } catch (e) {
-        console.error("[API] Gatekeeper Error:", e);
+        console.warn("[API] Gatekeeper Validation/Processing Error:", e);
         return res.json({ action: "ALLOW" });
     }
 });
