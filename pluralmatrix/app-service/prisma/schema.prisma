@@ -12,6 +12,7 @@ model System {
   id        String   @id @default(uuid())
   ownerId   String   @unique // The Matrix User ID (@user:server)
   name      String?
+  systemTag String?  // The suffix tag (e.g. ⛩️ Seraphim ⛩️)
   members   Member[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -21,9 +22,13 @@ model Member {
   id          String   @id @default(uuid())
   systemId    String
   system      System   @relation(fields: [systemId], references: [id])
+  slug        String   @unique // Name-based ID for commands (e.g. "lily")
   name        String
   displayName String?
   avatarUrl   String?
+  pronouns    String?
+  description String?
+  color       String?
   proxyTags   Json     // Array of { prefix: string, suffix: string }
   matrixId    String?  // The Ghost User ID (@_plural_id:server)
   createdAt   DateTime @default(now())

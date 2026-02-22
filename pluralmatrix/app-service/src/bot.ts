@@ -1,10 +1,22 @@
-import { AppServiceRegistration, Bridge, Request, WeakEvent, BridgeContext } from "matrix-appservice-bridge";
+import { AppServiceRegistration, Bridge, Request, WeakEvent, BridgeContext, Intent } from "matrix-appservice-bridge";
 import { PrismaClient } from "@prisma/client";
 import * as yaml from "js-yaml";
 import * as fs from "fs";
+import { marked } from "marked";
 
 // Initialize Prisma
 export const prisma = new PrismaClient();
+
+// Helper to send formatted Markdown
+const sendRichText = async (intent: Intent, roomId: string, text: string) => {
+    const html = await marked.parse(text, { breaks: true });
+    return intent.sendEvent(roomId, "m.room.message", {
+        msgtype: "m.text",
+        body: text,
+        format: "org.matrix.custom.html",
+        formatted_body: html.trim()
+    });
+};
 
 // Configuration
 const REGISTRATION_PATH = "/data/app-service-registration.yaml";
@@ -45,8 +57,7 @@ export const startMatrixBot = async () => {
                 const eventId = event.event_id;
 
                 // --- EMPTY MESSAGE REDACTION ---
-                // Redact messages that are empty or just whitespace (likely blackholed by Python)
-                if (body.trim() === "") {
+                if (body.trim() === "" && !sender.startsWith("@_plural_") && sender !== bridge.getBot().getUserId()) {
                     console.log(`[Janitor] Redacting empty message ${eventId} in ${roomId}`);
                     try {
                         await bridge.getBot().getClient().redactEvent(roomId, eventId, "EmptyBody");
@@ -55,10 +66,52 @@ export const startMatrixBot = async () => {
                     }
                     return;
                 }
-                
-                // --- JANITOR LOGIC (Restored) ---
 
-                // 1. Find System
+                // --- CHAT COMMANDS ---
+                if (body.startsWith("pk;")) {
+                    const parts = body.split(" ");
+                    const cmd = parts[0].substring(3).toLowerCase();
+
+                    // 1. pk;list - List all alters
+                    if (cmd === "list") {
+                        const system = await prisma.system.findUnique({
+                            where: { ownerId: sender },
+                            include: { members: true }
+                        });
+                        if (!system || system.members.length === 0) {
+                            await bridge.getIntent().sendText(roomId, "You don't have any alters registered yet.");
+                            return;
+                        }
+                        const memberList = system.members.map(m => `* **${m.name}** (id: \`${m.slug}\`)`).join("\n");
+                        await sendRichText(bridge.getIntent(), roomId, `### ${system.name || "Your System"} Members\n${memberList}`);
+                        return;
+                    }
+
+                    // 2. pk;member <slug> - Show details
+                    if (cmd === "member" && parts[1]) {
+                        const slug = parts[1].toLowerCase();
+                        const member = await prisma.member.findFirst({
+                            where: { slug, system: { ownerId: sender } }
+                        });
+                        if (!member) {
+                            await bridge.getIntent().sendText(roomId, `No member found with ID: ${slug}`);
+                            return;
+                        }
+                        
+                        let info = `## Member Details: ${member.name}\n\n`;
+                        if (member.pronouns) info += `* **Pronouns:** ${member.pronouns}\n`;
+                        if (member.color) info += `* **Color:** \`#${member.color}\`\n`;
+                        if (member.description) info += `\n### Description\n${member.description}\n\n`;
+                        
+                        const tags = (member.proxyTags as any[]).map(t => `\`${t.prefix}text\``).join(", ");
+                        info += `--- \n* **Proxy Tags:** ${tags || "None"}`;
+
+                        await sendRichText(bridge.getIntent(), roomId, info);
+                        return;
+                    }
+                }
+                
+                // --- JANITOR LOGIC (Backup for non-blocking path) ---
                 const system = await prisma.system.findUnique({
                     where: { ownerId: sender },
                     include: { members: true }
@@ -66,58 +119,34 @@ export const startMatrixBot = async () => {
 
                 if (!system) return;
 
-                // 2. Check Tags
                 for (const member of system.members) {
                     const tags = member.proxyTags as any[];
                     for (const tag of tags) {
                         if (body.startsWith(tag.prefix) && (tag.suffix ? body.endsWith(tag.suffix) : true)) {
-                            // MATCH!
-                            const cleanContent = body.slice(
-                                tag.prefix.length, 
-                                body.length - (tag.suffix?.length || 0)
-                            ).trim();
-
+                            const cleanContent = body.slice(tag.prefix.length, body.length - (tag.suffix?.length || 0)).trim();
                             if (!cleanContent) return;
 
-                            console.log(`[Janitor] Proxying for ${member.name} in ${roomId}`);
+                            console.log(`[Janitor-Backup] Proxying for ${member.name} in ${roomId}`);
 
-                            // Check Permissions
                             try {
                                 const botClient = bridge.getBot().getClient();
-                                const botId = bridge.getBot().getUserId();
-                                
-                                // Fetch power levels
-                                const powerLevels = await botClient.getRoomStateEvent(roomId, "m.room.power_levels", "");
-                                const userLevel = powerLevels.users?.[botId] ?? powerLevels.users_default ?? 0;
-                                const redactLevel = powerLevels.events?.["m.room.redaction"] ?? 50;
+                                await botClient.redactEvent(roomId, eventId, "PluralProxy-Backup");
+                            } catch (e) {}
 
-                                if (userLevel < redactLevel) {
-                                    console.warn(`[Janitor] Missing permissions in ${roomId}. Level: ${userLevel}, Needed: ${redactLevel}`);
-                                    await bridge.getIntent().sendText(roomId, "⚠️ I need Moderator permissions to redact messages. Please promote me!");
-                                    return;
-                                }
-
-                                // 3. REDACT ORIGINAL (Fastest Action)
-                                await botClient.redactEvent(roomId, eventId, "PluralProxy");
-                            } catch (e) {
-                                console.error("[Janitor] Failed to check permissions or redact:", e);
-                            }
-
-                            // 4. SEND GHOST MESSAGE
                             try {
-                                const ghostLocalpart = `_plural_${member.id}`; 
-                                const ghostUserId = `@${ghostLocalpart}:${DOMAIN}`;
+                                const ghostUserId = `@_plural_${member.id}:${DOMAIN}`;
                                 const intent = bridge.getIntent(ghostUserId);
                                 
-                                await intent.setDisplayName(member.displayName || member.name);
-                                if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
+                                const finalDisplayName = system.systemTag 
+                                    ? `${member.displayName || member.name} ${system.systemTag}`
+                                    : (member.displayName || member.name);
 
+                                await intent.setDisplayName(finalDisplayName);
+                                if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
                                 await intent.sendText(roomId, cleanContent);
-                            } catch (e) {
-                                console.error("[Janitor] Failed to send ghost:", e);
-                            }
+                            } catch (e) {}
                             
-                            return; // Stop processing
+                            return;
                         }
                     }
                 }
