@@ -4,6 +4,7 @@ import cors from 'cors';
 import path from 'path';
 import { startMatrixBot } from './bot';
 import routes from './routes';
+import * as gatekeeperController from './controllers/gatekeeperController';
 
 const app = express();
 const PORT = process.env.APP_PORT || 9000;
@@ -24,11 +25,7 @@ if (!process.env.AS_TOKEN || !process.env.JWT_SECRET) {
     process.exit(1);
 }
 
-// The /check endpoint is actually at root /check in your old code
-// My gatekeeperRoutes uses router.post('/check', ...) and it's mounted at /api
-// Wait, the old code had app.post('/check', ...) at the root level.
-// Let's ensure compatibility.
-import * as gatekeeperController from './controllers/gatekeeperController';
+// Synapse Gatekeeper Compatibility (Module expects /check at root)
 app.post('/check', gatekeeperController.checkMessage);
 
 // All other requests will return the React app
