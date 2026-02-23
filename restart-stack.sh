@@ -29,6 +29,14 @@ fi
 # Always ensure it is connected to the current network instance
 sudo docker network connect ${PROJECT_NAME}_plural-net ${PROJECT_NAME}_postgres 2>/dev/null || true
 
+# Wait for Postgres to be ready
+echo "🐘 Waiting for Postgres to be ready..."
+until sudo docker exec ${PROJECT_NAME}_postgres pg_isready -U synapse >/dev/null 2>&1; do
+  echo -n "."
+  sleep 1
+done
+echo " Ready!"
+
 # 1.5 Ensure plural_db and restricted user exist
 echo "🐘 Ensuring plural_db and plural_app user exist..."
 # Get password from .env
