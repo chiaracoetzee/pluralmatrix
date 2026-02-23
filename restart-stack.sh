@@ -43,17 +43,17 @@ echo "🐘 Ensuring plural_db and plural_app user exist..."
 PG_PASS=$(grep POSTGRES_PASSWORD .env | cut -d '=' -f2)
 
 # Create DB if missing
-sudo docker exec ${PROJECT_NAME}_postgres psql -U synapse -tc "SELECT 1 FROM pg_database WHERE datname = 'plural_db'" | grep -q 1 || \
-sudo docker exec ${PROJECT_NAME}_postgres psql -U synapse -c "CREATE DATABASE plural_db"
+sudo docker exec ${PROJECT_NAME}_postgres psql -U synapse -d template1 -tc "SELECT 1 FROM pg_database WHERE datname = 'plural_db'" | grep -q 1 || \
+sudo docker exec ${PROJECT_NAME}_postgres psql -U synapse -d template1 -c "CREATE DATABASE plural_db"
 
 # Create Restricted User if missing and Grant Privileges
-sudo docker exec ${PROJECT_NAME}_postgres psql -U synapse -c "DO \$\$
+sudo docker exec ${PROJECT_NAME}_postgres psql -U synapse -d template1 -c "DO \$\$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'plural_app') THEN
         CREATE USER plural_app WITH PASSWORD '$PG_PASS';
     END IF;
 END \$\$;"
-sudo docker exec ${PROJECT_NAME}_postgres psql -U synapse -c "GRANT ALL PRIVILEGES ON DATABASE plural_db TO plural_app;"
+sudo docker exec ${PROJECT_NAME}_postgres psql -U synapse -d template1 -c "GRANT ALL PRIVILEGES ON DATABASE plural_db TO plural_app;"
 
 
 # 2. Ensure Synapse is running

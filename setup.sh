@@ -8,7 +8,10 @@ gen_token() {
     openssl rand -hex 32
 }
 
-echo "🌌 Welcome to the PluralMatrix Setup Wizard!"
+# 0. Initialise project name
+PROJECT_NAME=$(basename "$(pwd)")
+
+echo "🌌 Welcome to the PluralMatrix Setup Wizard ($PROJECT_NAME)!"
 echo "This script will generate secure tokens and configure your environment."
 echo ""
 
@@ -70,7 +73,6 @@ sudo docker run -it --rm -v "$(pwd)/synapse/config:/data" \
     matrixdotorg/synapse:latest generate
 
 # 6. Finalize project name in scripts
-PROJECT_NAME=$(basename "$(pwd)")
 echo "🏷️ Setting project name to: $PROJECT_NAME"
 sed -i "s/^PROJECT_NAME=.*/PROJECT_NAME=\"$PROJECT_NAME\"/" restart-stack.sh
 sed -i "s/^PROJECT_NAME=.*/PROJECT_NAME=\"$PROJECT_NAME\"/" stop-stack.sh
