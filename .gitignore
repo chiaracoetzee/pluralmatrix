@@ -32,3 +32,4 @@ Thumbs.db
 .dockercache
 synapse/modules/plural_gatekeeper.py~
 *:Zone.Identifier
+pantalaimon/pantalaimon.conf

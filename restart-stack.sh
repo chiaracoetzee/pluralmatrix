@@ -3,7 +3,12 @@
 # PluralMatrix Restart Helper Script 🚀
 # This script handles the manual rebuild and restart of the stack.
 
-PROJECT_NAME="pluralmatrix" # Updated by setup.sh
+# Load configuration from .env
+if [ -f .env ]; then
+  export $(grep -v '^#' .env | xargs)
+fi
+
+PROJECT_NAME=${PROJECT_NAME:-pluralmatrix}
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
 

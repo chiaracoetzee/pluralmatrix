@@ -9,7 +9,9 @@ gen_token() {
 }
 
 # 0. Initialise project name (Replace underscores with dashes for Synapse hostname compatibility)
-PROJECT_NAME=$(basename "$(pwd)" | tr '_' '-')
+DIR_NAME=$(basename "$(pwd)" | tr '_' '-')
+# Fallback to 'pluralmatrix' if we are in a root-like folder
+PROJECT_NAME=${DIR_NAME:-pluralmatrix}
 
 echo "🌌 Welcome to the PluralMatrix Setup Wizard ($PROJECT_NAME)!"
 echo "This script will generate secure tokens and configure your environment."
@@ -38,6 +40,7 @@ echo "📝 Configuring .env..."
 cp .env.example .env
 sed -i "s/POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$PG_PASS/" .env
 sed -i "s|DATABASE_URL=.*|DATABASE_URL=postgresql://plural_app:$PG_PASS@${PROJECT_NAME}-postgres:5432/plural_db|" .env
+sed -i "s/PROJECT_NAME=.*/PROJECT_NAME=$PROJECT_NAME/" .env
 sed -i "s/SYNAPSE_SERVER_NAME=.*/SYNAPSE_SERVER_NAME=$DOMAIN/" .env
 sed -i "s/AS_TOKEN=.*/AS_TOKEN=$AS_TOKEN/" .env
 sed -i "s/JWT_SECRET=.*/JWT_SECRET=$JWT_SECRET/" .env
@@ -64,6 +67,7 @@ sed -i "s|url: .*|url: http://${PROJECT_NAME}-app-service:8008|" synapse/config/
 
 # 4.5 Configure Pantalaimon
 echo "🛡️ Configuring pantalaimon.conf..."
+cp pantalaimon/pantalaimon.conf.example pantalaimon/pantalaimon.conf
 sed -i "s/Password = .*/Password = $DECRYPTER_PASS/" pantalaimon/pantalaimon.conf
 sed -i "s|Homeserver = .*|Homeserver = http://${PROJECT_NAME}-synapse:8008|" pantalaimon/pantalaimon.conf
 
@@ -74,12 +78,8 @@ sudo docker run -it --rm -v "$(pwd)/synapse/config:/data" \
     -e SYNAPSE_REPORT_STATS=no \
     matrixdotorg/synapse:latest generate
 
-# 6. Finalize project name in scripts
-echo "🏷️ Setting project name to: $PROJECT_NAME"
-sed -i "s/^PROJECT_NAME=.*/PROJECT_NAME=\"$PROJECT_NAME\"/" restart-stack.sh
-sed -i "s/^PROJECT_NAME=.*/PROJECT_NAME=\"$PROJECT_NAME\"/" stop-stack.sh
-
 echo ""
+echo "🏷️ Project name established as: $PROJECT_NAME"
 echo "✅ Setup Complete!"
 echo "--------------------------------------------------------"
 echo "🚀 NEXT STEPS:"
@@ -88,6 +88,9 @@ echo "2. Register the decrypter user:"
 echo "   sudo docker exec ${PROJECT_NAME}-synapse register_new_matrix_user -c /data/homeserver.yaml -u plural_decrypter -p $DECRYPTER_PASS --admin http://localhost:8008"
 echo "3. Seed the database (Optional):"
 echo "   sudo docker exec -it ${PROJECT_NAME}-app-service npx ts-node seed-db.ts"
+echo ""
+echo "📢 IMPORTANT REMINDER:"
+echo "   You must /invite @plural_bot:localhost to every room you want it to operate in!"
 echo ""
 echo "📊 VIEW LOGS:"
 echo "   sudo docker logs -f ${PROJECT_NAME}-app-service"

@@ -67,7 +67,10 @@ sudo docker exec plural-synapse register_new_matrix_user -c /data/homeserver.yam
 
 ## Usage
 
-### Commands
+### 1. Invite the Bot
+**IMPORTANT:** You must manually `/invite @plural_bot:localhost` to every room you want it to operate in (both plaintext and encrypted).
+
+### 2. Commands
 *   `pk;list` - List all members in your system.
 *   `pk;member <id>` - Show detailed info for a specific member.
 

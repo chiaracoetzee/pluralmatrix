@@ -1,7 +1,13 @@
 #!/bin/bash
 
 # PluralMatrix Stop Helper Script 🛑
-PROJECT_NAME="pluralmatrix" # Updated by setup.sh
+
+# Load configuration from .env
+if [ -f .env ]; then
+  export $(grep -v '^#' .env | xargs)
+fi
+
+PROJECT_NAME=${PROJECT_NAME:-pluralmatrix}
 
 echo "🌌 Stopping $PROJECT_NAME Stack..."
 
