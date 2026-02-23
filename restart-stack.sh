@@ -28,23 +28,21 @@ else
 fi
 
 # 2. Ensure Synapse is running
-if ! sudo docker ps -a | grep -q " plural-synapse$"; then
-  echo "🌌 Starting fresh Synapse container..."
-  sudo chown -R 991:991 synapse/config 2>/dev/null || true
-  sudo docker run -d \
-    --name plural-synapse \
-    --network ${PROJECT_NAME}_plural-net \
-    -v "$(pwd)/synapse/config:/data" \
-    -v "$(pwd)/synapse/modules:/modules" \
-    --env-file ./.env \
-    -e SYNAPSE_SERVER_NAME=localhost \
-    -e SYNAPSE_REPORT_STATS=no \
-    -e PYTHONPATH=/modules \
-    -p 8008:8008 \
-    matrixdotorg/synapse:latest
-else
-  sudo docker restart plural-synapse
-fi
+echo "🌌 Refreshing Synapse container..."
+sudo docker rm -f plural-synapse 2>/dev/null || true
+# Fix permissions just in case
+sudo chown -R 991:991 synapse/config 2>/dev/null || true
+sudo docker run -d \
+  --name plural-synapse \
+  --network ${PROJECT_NAME}_plural-net \
+  -v "$(pwd)/synapse/config:/data" \
+  -v "$(pwd)/synapse/modules:/modules" \
+  --env-file ./.env \
+  -e SYNAPSE_SERVER_NAME=localhost \
+  -e SYNAPSE_REPORT_STATS=no \
+  -e PYTHONPATH=/modules \
+  -p 8008:8008 \
+  matrixdotorg/synapse:latest
 
 # 2.5 Ensure Pantalaimon is running
 echo "🛡️ Refreshing Pantalaimon container..."
