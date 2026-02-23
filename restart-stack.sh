@@ -36,8 +36,15 @@ sudo docker network connect ${PROJECT_NAME}-plural-net ${PROJECT_NAME}-postgres 
 
 # Wait for Postgres to be ready
 echo "🐘 Waiting for Postgres to be ready..."
-until sudo docker exec ${PROJECT_NAME}-postgres pg_isready -U synapse >/dev/null 2>&1; do
+# First wait for pg_isready to pass
+until sudo docker exec ${PROJECT_NAME}-postgres pg_isready -U synapse -d template1 >/dev/null 2>&1; do
   echo -n "."
+  sleep 1
+done
+
+# Then wait for a successful connection to ensure it's not in the middle of an init shutdown
+until sudo docker exec ${PROJECT_NAME}-postgres psql -U synapse -d template1 -c "SELECT 1" >/dev/null 2>&1; do
+  echo -n "o"
   sleep 1
 done
 echo " Ready!"
@@ -47,7 +54,7 @@ echo "🐘 Ensuring plural_db and plural_app user exist..."
 # Get password from .env
 PG_PASS=$(grep POSTGRES_PASSWORD .env | cut -d '=' -f2)
 
-# Create DB if missing
+# Create DB if missing (though POSTGRES_DB should handle it on first boot)
 sudo docker exec ${PROJECT_NAME}-postgres psql -U synapse -d template1 -tc "SELECT 1 FROM pg_database WHERE datname = 'plural_db'" | grep -q 1 || \
 sudo docker exec ${PROJECT_NAME}-postgres psql -U synapse -d template1 -c "CREATE DATABASE plural_db"
 
