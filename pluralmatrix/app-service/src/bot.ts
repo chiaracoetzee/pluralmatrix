@@ -31,6 +31,8 @@ let bridge: Bridge;
 
 // Track rooms where we've already warned about missing permissions
 const permissionWarnedRooms = new Set<string>();
+// Track rooms where we've already invited the decrypter
+const roomsWithDecrypter = new Set<string>();
 
 const safeRedact = async (bridgeInstance: Bridge, roomId: string, eventId: string, reason: string) => {
     try {
@@ -62,8 +64,48 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
         return;
     }
 
+    // --- DECRYPTER STATE TRACKING ---
+    // If the decrypter leaves or is kicked, clear it from our "invited" cache
+    if (event.type === "m.room.member" && event.state_key === DECRYPTER_ID) {
+        if (event.content.membership !== "join") {
+            console.log(`[Bot] Decrypter ghost left/was removed from ${event.room_id}. Clearing cache.`);
+            roomsWithDecrypter.delete(event.room_id);
+        } else {
+            roomsWithDecrypter.add(event.room_id);
+        }
+    }
+
     // Ignore encrypted events pushed via AS (The decrypter sidecar will catch them decrypted)
-    if (event.type === "m.room.encrypted") return;
+    if (event.type === "m.room.encrypted") {
+        if (!roomsWithDecrypter.has(event.room_id)) {
+            try {
+                // Check if already in the room
+                const botClient = bridgeInstance.getBot().getClient();
+                const members = await botClient.getJoinedRoomMembers(event.room_id);
+                if (members.includes(DECRYPTER_ID)) {
+                    roomsWithDecrypter.add(event.room_id);
+                    return;
+                }
+
+                console.log(`[Bot] Encryption detected in ${event.room_id}. Inviting Decrypter Ghost...`);
+                await bridgeInstance.getIntent().invite(event.room_id, DECRYPTER_ID);
+                roomsWithDecrypter.add(event.room_id);
+            } catch (e: any) {
+                // If we fail to get members (e.g. not in room), just try the invite
+                try {
+                    await bridgeInstance.getIntent().invite(event.room_id, DECRYPTER_ID);
+                    roomsWithDecrypter.add(event.room_id);
+                } catch (inviteErr: any) {
+                    if (inviteErr.message?.includes("already in the room")) {
+                        roomsWithDecrypter.add(event.room_id);
+                    } else {
+                        console.warn(`[Bot] Failed to invite decrypter to ${event.room_id}:`, inviteErr.message);
+                    }
+                }
+            }
+        }
+        return;
+    }
 
     if (event.type !== "m.room.message" || !event.content || event.content.body === undefined) return;
     
@@ -164,7 +206,17 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                         if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
                     } catch (e) {}
 
-                    await intent.sendText(roomId, cleanContent);
+                    // --- PRESERVE RELATIONS (REPLIES) ---
+                    const content: any = {
+                        msgtype: "m.text",
+                        body: cleanContent
+                    };
+
+                    if (event.content["m.relates_to"]) {
+                        content["m.relates_to"] = event.content["m.relates_to"];
+                    }
+
+                    await intent.sendEvent(roomId, "m.room.message", content);
                 } catch (e) {}
                 
                 return;

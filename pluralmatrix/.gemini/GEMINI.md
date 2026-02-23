@@ -20,6 +20,13 @@ To reset or seed the test system:
 sudo docker exec -it plural-app-service npx ts-node seed-db.ts
 ```
 
+## Testing
+
+When running `npm test` within the App Service, always redirect stdout and stderr to a temporary file and then `cat` it to avoid hanging issues in the Gemini CLI:
+```bash
+cd app-service && npm test > test_output.log 2>&1; cat test_output.log
+```
+
 ## Troubleshooting
 * **Logs:** `sudo docker logs -f plural-app-service`
 * **Synapse Logs:** `sudo docker logs -f plural-synapse`

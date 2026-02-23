@@ -9,17 +9,20 @@ export const registerUser = (username: string, password: string): string => {
     try {
         const cmd = `sudo docker exec plural-synapse register_new_matrix_user -c /data/homeserver.yaml -u ${username} -p ${password} --admin http://localhost:8008`;
         execSync(cmd, { stdio: 'pipe' });
+        console.log(`[E2E] User ${username} registered successfully.`);
         return `@${username}:localhost`;
     } catch (e: any) {
         if (e.message.includes('User ID already taken')) {
+            console.log(`[E2E] User ${username} already exists.`);
             return `@${username}:localhost`;
         }
+        console.error(`[E2E] Registration failed for ${username}:`, e.message);
         throw e;
     }
 };
 
 export const getMatrixClient = async (username: string, password: string): Promise<MatrixClient> => {
-    console.log(`[E2E] Logging in user ${username}...`);
+    console.log(`[E2E] Logging in user ${username} to Matrix...`);
     const response = await fetch(`${SYNAPSE_URL}/_matrix/client/v3/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -31,8 +34,12 @@ export const getMatrixClient = async (username: string, password: string): Promi
     });
     
     const data = await response.json() as any;
-    if (!response.ok) throw new Error(`Login failed: ${JSON.stringify(data)}`);
+    if (!response.ok) {
+        console.error(`[E2E] Matrix login failed for ${username}:`, JSON.stringify(data));
+        throw new Error(`Login failed: ${JSON.stringify(data)}`);
+    }
     
+    console.log(`[E2E] User ${username} logged in to Matrix.`);
     return new MatrixClient(SYNAPSE_URL, data.access_token);
 };
 
@@ -45,8 +52,12 @@ export const getPluralMatrixToken = async (mxid: string, password: string): Prom
     });
     
     const data = await response.json() as any;
-    if (!response.ok) throw new Error(`PluralMatrix login failed: ${JSON.stringify(data)}`);
+    if (!response.ok) {
+        console.error(`[E2E] PluralMatrix login failed for ${mxid}:`, JSON.stringify(data));
+        throw new Error(`PluralMatrix login failed: ${JSON.stringify(data)}`);
+    }
     
+    console.log(`[E2E] PluralMatrix JWT obtained for ${mxid}.`);
     return data.token;
 };
 
@@ -57,5 +68,6 @@ export const setupTestRoom = async (client: MatrixClient): Promise<string> => {
         name: `E2E Test Room ${Date.now()}`,
         invite: ['@plural_bot:localhost']
     });
+    console.log(`[E2E] Test room created: ${roomId}`);
     return roomId;
 };
