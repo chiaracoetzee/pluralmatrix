@@ -19,7 +19,7 @@ if ! sudo docker ps -a | grep -q " postgres$"; then
     --name postgres \
     --network pluralmatrix_plural-net \
     -v pluralmatrix_postgres_data:/var/lib/postgresql/data \
-    --env-file ../.env \
+    --env-file ./.env \
     -e POSTGRES_DB=plural_db \
     -e POSTGRES_USER=synapse \
     postgres:15
@@ -37,7 +37,7 @@ if ! sudo docker ps -a | grep -q " plural-synapse$"; then
     --network pluralmatrix_plural-net \
     -v "$(pwd)/synapse/config:/data" \
     -v "$(pwd)/synapse/modules:/modules" \
-    --env-file ../.env \
+    --env-file ./.env \
     -e SYNAPSE_SERVER_NAME=localhost \
     -e SYNAPSE_REPORT_STATS=no \
     -e PYTHONPATH=/modules \

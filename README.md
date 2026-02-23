@@ -31,16 +31,15 @@ A high-performance Matrix Application Service for Plurality, featuring **"Zero-F
 1.  **Environment Variables**: 
     `cp .env.example .env` and fill in `POSTGRES_PASSWORD`, `AS_TOKEN`, `HS_TOKEN`, and `JWT_SECRET`.
 2.  **Synapse Config**: 
-    `cp pluralmatrix/synapse/config/homeserver.yaml.example pluralmatrix/synapse/config/homeserver.yaml`. 
+    `cp synapse/config/homeserver.yaml.example synapse/config/homeserver.yaml`. 
     *Note: Replace all "REPLACE_ME" tokens.*
 3.  **App Service Registration**: 
-    `cp pluralmatrix/synapse/config/app-service-registration.yaml.example pluralmatrix/synapse/config/app-service-registration.yaml`.
+    `cp synapse/config/app-service-registration.yaml.example synapse/config/app-service-registration.yaml`.
     *Note: Ensure tokens match your `.env`.*
 
 ### 2. Launch the Stack
 The stack includes 5 services (Synapse, Postgres, App Service, Pantalaimon, and the Gatekeeper). Use the helper script to ensure clean volume mapping:
 ```bash
-cd pluralmatrix
 ./restart-stack.sh
 ```
 
@@ -71,7 +70,7 @@ Simply send a message with your configured member tags (e.g., `[Name] Message`).
 ### Running Tests
 To avoid CLI hangs, always pipe output to a log file:
 ```bash
-cd pluralmatrix/app-service
+cd app-service
 npm test > test_output.log 2>&1; cat test_output.log
 ```
 The suite includes full E2E roundtrips for both **plaintext** and **encrypted** rooms.

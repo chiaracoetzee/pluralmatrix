@@ -1,0 +1,409 @@
+
+> app-service@1.0.0 test
+> jest --forceExit
+
+(node:283496) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+PASS src/cache.test.ts (6.696 s)
+(node:283502) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+PASS src/auth.test.ts (6.803 s)
+  ● Console
+
+    console.warn
+      [Auth] Login failed for @user:localhost: M_FORBIDDEN
+
+      53 |         } else {
+      54 |             const data = await response.json();
+    > 55 |             console.warn(`[Auth] Login failed for ${mxid}:`, data.error);
+         |                     ^
+      56 |             return false;
+      57 |         }
+      58 |     } catch (error) {
+
+      at loginToMatrix (src/auth.ts:55:21)
+      at Object.<anonymous> (src/auth.test.ts:41:28)
+
+(node:283488) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+PASS src/import.test.ts (7.116 s)
+  ● Console
+
+    console.log
+      [Ghost] Decommissioning @_plural_sys_ghost:localhost...
+
+      at decommissionGhost (src/import.ts:149:17)
+
+    console.log
+      [Ghost] @_plural_sys_ghost:localhost has left all rooms.
+
+      at decommissionGhost (src/import.ts:161:17)
+
+    console.log
+      [Ghost] Decommissioning @_plural_sys_ghost:localhost...
+
+      at decommissionGhost (src/import.ts:149:17)
+
+    console.error
+      [Ghost] Failed to decommission ghost: API Fail
+
+      161 |         console.log(`[Ghost] ${ghostUserId} has left all rooms.`);
+      162 |     } catch (e: any) {
+    > 163 |         console.error(`[Ghost] Failed to decommission ${member.slug}:`, e.message || e);
+          |                 ^
+      164 |     }
+      165 | };
+      166 |
+
+      at decommissionGhost (src/import.ts:163:17)
+      at Object.<anonymous> (src/import.test.ts:155:13)
+
+(node:283489) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:283489) Warning: `--localstorage-file` was provided without a valid path
+PASS src/bot.test.ts (7.6 s)
+  ● Console
+
+    console.log
+      [Janitor] Redacting empty message $event:localhost in !room:localhost
+
+      at handleEvent (src/bot.ts:122:17)
+
+(node:283473) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:283473) Warning: `--localstorage-file` was provided without a valid path
+PASS src/roundtrip.test.ts (8.003 s)
+  ● Console
+
+    console.log
+      [Importer] Starting import for @user:localhost
+
+      at importFromPluralKit (src/import.ts:171:13)
+
+    console.error
+      [Importer] Failed to migrate avatar from https://example.com/avatar.png: TypeError: fetch failed
+          at node:internal/deps/undici/undici:15845:13
+          at processTicksAndRejections (node:internal/process/task_queues:103:5)
+          at migrateAvatar (/home/chiaracoetzee/pluralmatrix/app-service/src/import.ts:94:26)
+          at importFromPluralKit (/home/chiaracoetzee/pluralmatrix/app-service/src/import.ts:251:31)
+          at Object.<anonymous> (/home/chiaracoetzee/pluralmatrix/app-service/src/roundtrip.test.ts:86:9) {
+        [cause]: Error: unable to get local issuer certificate
+            at TLSSocket.onConnectSecure (node:internal/tls/wrap:1630:34)
+            at TLSSocket.emit (node:events:508:28)
+            at TLSSocket._finishInit (node:internal/tls/wrap:1076:8)
+            at TLSWrap.ssl.onhandshakedone (node:internal/tls/wrap:862:12) {
+          code: 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY'
+        }
+      }
+
+      102 |         return mxcUrl;
+      103 |     } catch (e) {
+    > 104 |         console.error(`[Importer] Failed to migrate avatar from ${url}:`, e);
+          |                 ^
+      105 |         return null;
+      106 |     }
+      107 | };
+
+      at migrateAvatar (src/import.ts:104:17)
+      at importFromPluralKit (src/import.ts:251:31)
+      at Object.<anonymous> (src/roundtrip.test.ts:86:9)
+
+    console.log
+      [Ghost] Syncing global profile for @_plural_test-system_alice:localhost (Alice 🌸 [Test])
+
+      at syncGhostProfile (src/import.ts:125:17)
+
+    console.log
+      [Importer] Successfully imported 1 members for @user:localhost
+
+      at importFromPluralKit (src/import.ts:294:13)
+
+    console.log
+      [Importer] Starting import for @user:localhost
+
+      at importFromPluralKit (src/import.ts:171:13)
+
+    console.log
+      [Ghost] Syncing global profile for @_plural_my-custom-system-slug_very-long-member-slug-that-should-not-be-truncated:localhost (Alice)
+
+      at syncGhostProfile (src/import.ts:125:17)
+
+    console.log
+      [Importer] Successfully imported 1 members for @user:localhost
+
+      at importFromPluralKit (src/import.ts:294:13)
+
+    console.log
+      [Ghost] Syncing global profile for @_plural_mysys_alice:localhost (Alice)
+
+      at syncGhostProfile (src/import.ts:125:17)
+
+(node:283487) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:283487) Warning: `--localstorage-file` was provided without a valid path
+PASS src/api.test.ts (8.532 s)
+  ● Console
+
+    console.log
+      [API] POST /api/auth/login
+
+      at src/index.ts:17:13
+
+    console.log
+      [API] GET /api/members
+
+      at src/index.ts:17:13
+
+    console.log
+      [API] POST /api/members
+
+      at src/index.ts:17:13
+
+    console.log
+      [API] PATCH /api/members/m1
+
+      at src/index.ts:17:13
+
+    console.log
+      [API] DELETE /api/members/m1
+
+      at src/index.ts:17:13
+
+    console.log
+      [API] DELETE /api/members
+
+      at src/index.ts:17:13
+
+    console.log
+      [API] DELETE /api/members/m99
+
+      at src/index.ts:17:13
+
+    console.log
+      [API] GET /api/system
+
+      at src/index.ts:17:13
+
+    console.log
+      [API] PATCH /api/system
+
+      at src/index.ts:17:13
+
+(node:283474) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:283474) Warning: `--localstorage-file` was provided without a valid path
+PASS src/e2e.test.ts (20.389 s)
+  ● Console
+
+    console.log
+      [E2E] Starting beforeAll setup for e2e_user_1q40x...
+
+      at Object.<anonymous> (src/e2e.test.ts:26:17)
+
+    console.log
+      [E2E] Registering user e2e_user_1q40x...
+
+      at registerUser (src/test/e2e-helper.ts:8:13)
+
+    console.log
+      [E2E] User e2e_user_1q40x registered successfully.
+
+      at registerUser (src/test/e2e-helper.ts:12:17)
+
+    console.log
+      [E2E] Logging in user e2e_user_1q40x to Matrix...
+
+      at getMatrixClient (src/test/e2e-helper.ts:25:13)
+
+    console.log
+      [E2E] User e2e_user_1q40x logged in to Matrix.
+
+      at getMatrixClient (src/test/e2e-helper.ts:42:13)
+
+    console.log
+      [E2E] Matrix client starting...
+
+      at Object.<anonymous> (src/e2e.test.ts:30:17)
+
+    console.error
+      MatrixHttpClient (REQ-2) { errcode: 'M_NOT_FOUND', error: 'Account data not found' }
+
+      29 |         client = await getMatrixClient(username, password);
+      30 |         console.log(`[E2E] Matrix client starting...`);
+    > 31 |         await client.start();
+         |         ^
+      32 |         console.log(`[E2E] Matrix client started.`);
+      33 |
+      34 |         // 2. Login to PluralMatrix App Service
+
+      at LogService.error (node_modules/matrix-appservice-bridge/node_modules/@vector-im/matrix-bot-sdk/src/logging/LogService.ts:130:27)
+      at doHttpRequest (node_modules/matrix-appservice-bridge/node_modules/@vector-im/matrix-bot-sdk/src/http.ts:122:20)
+      at MatrixClient.descriptor.value (node_modules/matrix-appservice-bridge/node_modules/@vector-im/matrix-bot-sdk/src/metrics/decorators.ts:28:32)
+      at MatrixClient.descriptor.value (node_modules/matrix-appservice-bridge/node_modules/@vector-im/matrix-bot-sdk/src/metrics/decorators.ts:28:32)
+      at DMs.updateFromAccountData (node_modules/matrix-appservice-bridge/node_modules/@vector-im/matrix-bot-sdk/src/DMs.ts:38:19)
+      at MatrixClient.start (node_modules/matrix-appservice-bridge/node_modules/@vector-im/matrix-bot-sdk/src/MatrixClient.ts:678:9)
+      at Object.<anonymous> (src/e2e.test.ts:31:9)
+
+    console.log
+      [E2E] Matrix client started.
+
+      at Object.<anonymous> (src/e2e.test.ts:32:17)
+
+    console.log
+      [E2E] Fetching PluralMatrix JWT for @e2e_user_1q40x:localhost...
+
+      at getPluralMatrixToken (src/test/e2e-helper.ts:47:13)
+
+    console.log
+      [E2E] PluralMatrix JWT obtained for @e2e_user_1q40x:localhost.
+
+      at getPluralMatrixToken (src/test/e2e-helper.ts:60:13)
+
+    console.log
+      [E2E] Creating test room...
+
+      at setupTestRoom (src/test/e2e-helper.ts:65:13)
+
+    console.log
+      [E2E] Test room created: !kmOIKJBALzRXBQNgHz:localhost
+
+      at setupTestRoom (src/test/e2e-helper.ts:71:13)
+
+    console.log
+      [E2E] Waiting for bot to join !kmOIKJBALzRXBQNgHz:localhost...
+
+      at Object.<anonymous> (src/e2e.test.ts:40:17)
+
+    console.log
+      [E2E] Setup complete.
+
+      at Object.<anonymous> (src/e2e.test.ts:43:17)
+
+    console.log
+      [E2E-Plain] Creating alter E2E-Ghost...
+
+      at Object.<anonymous> (src/e2e.test.ts:68:17)
+
+    console.log
+      [E2E-Plain] Alter created with slug: e2e-ghost-1771808951128
+
+      at Object.<anonymous> (src/e2e.test.ts:88:17)
+
+    console.log
+      [E2E-Plain] Sending proxied message...
+
+      at Object.<anonymous> (src/e2e.test.ts:104:17)
+
+    console.log
+      [E2E-Plain] Waiting for ghost response...
+
+      at Object.<anonymous> (src/e2e.test.ts:111:17)
+
+    console.log
+      [E2E-Plain] Caught ghost message from @_plural_e2e_user_1q40x_e2e-ghost-1771808951128:localhost
+
+      at MatrixClient.listener (src/e2e.test.ts:96:29)
+
+    console.log
+      [E2E-Plain] SUCCESS! Ghost spoke as @_plural_e2e_user_1q40x_e2e-ghost-1771808951128:localhost
+
+      at Object.<anonymous> (src/e2e.test.ts:117:17)
+
+    console.log
+      [E2E-Plain] Verifying redaction of original message...
+
+      at Object.<anonymous> (src/e2e.test.ts:120:17)
+
+    console.log
+      [E2E-Plain] Original message was successfully hidden.
+
+      at Object.<anonymous> (src/e2e.test.ts:126:21)
+
+    console.log
+      [E2E-E2EE] Creating encrypted room...
+
+      at Object.<anonymous> (src/e2e.test.ts:137:17)
+
+    console.log
+      [E2E] Creating test room...
+
+      at setupTestRoom (src/test/e2e-helper.ts:65:13)
+
+    console.log
+      [E2E] Test room created: !XTvQeqoaovLLgyOxyc:localhost
+
+      at setupTestRoom (src/test/e2e-helper.ts:71:13)
+
+    console.log
+      [E2E-E2EE] Enabling encryption in !XTvQeqoaovLLgyOxyc:localhost...
+
+      at Object.<anonymous> (src/e2e.test.ts:139:17)
+
+    console.log
+      [E2E-E2EE] Inviting decrypter ghost...
+
+      at Object.<anonymous> (src/e2e.test.ts:143:17)
+
+    console.log
+      [E2E-E2EE] Waiting for bot and decrypter to settle...
+
+      at Object.<anonymous> (src/e2e.test.ts:146:17)
+
+    console.log
+      [E2E-E2EE] Sending message to encrypted room...
+
+      at Object.<anonymous> (src/e2e.test.ts:163:17)
+
+    console.log
+      [E2E-E2EE] Waiting for ghost response...
+
+      at Object.<anonymous> (src/e2e.test.ts:170:17)
+
+    console.log
+      [E2E-E2EE] Caught ghost message from @_plural_e2e_user_1q40x_e2e-ghost-1771808951128:localhost
+
+      at MatrixClient.listener (src/e2e.test.ts:155:29)
+
+    console.log
+      [E2E-E2EE] SUCCESS! Decrypted ghost response caught.
+
+      at Object.<anonymous> (src/e2e.test.ts:174:17)
+
+    console.log
+      [E2E] Starting afterAll teardown...
+
+      at Object.<anonymous> (src/e2e.test.ts:47:17)
+
+    console.log
+      [E2E] Matrix client stopping...
+
+      at Object.<anonymous> (src/e2e.test.ts:49:21)
+
+    console.log
+      [E2E] Matrix client stopped.
+
+      at Object.<anonymous> (src/e2e.test.ts:51:21)
+
+    console.log
+      [E2E] Waiting for handles to settle...
+
+      at Object.<anonymous> (src/e2e.test.ts:54:17)
+
+    console.log
+      [E2E] Teardown complete.
+
+      at Object.<anonymous> (src/e2e.test.ts:56:17)
+
+    console.log
+      [E2E] Scheduling force-exit in 3s...
+
+      at Object.<anonymous> (src/e2e.test.ts:59:17)
+
+A worker process has failed to exit gracefully and has been force exited. This is likely caused by tests leaking due to improper teardown. Try running with --detectOpenHandles to find leaks. Active timers can also cause this, ensure that .unref() was called on them.
+
+Test Suites: 7 passed, 7 total
+Tests:       42 passed, 42 total
+Snapshots:   0 total
+Time:        21.544 s
+Ran all test suites.
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?
