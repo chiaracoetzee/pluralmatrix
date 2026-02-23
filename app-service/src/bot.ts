@@ -230,7 +230,9 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                 targetEvent = scrollback.chunk.find((e: any) => 
                     e.type === "m.room.message" && 
                     e.sender.startsWith(`@_plural_${system.slug}_`) &&
-                    e.content?.["m.relates_to"]?.rel_type !== "m.replace"
+                    e.content?.["m.relates_to"]?.rel_type !== "m.replace" &&
+                    !e.unsigned?.redacted_by &&
+                    Object.keys(e.content || {}).length > 0
                 );
 
                 if (targetEvent) {
@@ -323,7 +325,9 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                 targetEvent = scrollback.chunk.find((e: any) => 
                     e.type === "m.room.message" && 
                     e.sender.startsWith(`@_plural_${system.slug}_`) &&
-                    e.content?.["m.relates_to"]?.rel_type !== "m.replace"
+                    e.content?.["m.relates_to"]?.rel_type !== "m.replace" &&
+                    !e.unsigned?.redacted_by &&
+                    Object.keys(e.content || {}).length > 0
                 );
 
                 if (targetEvent) {
@@ -412,7 +416,9 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                     targetEvent = scrollback.chunk.find((e: any) => 
                         e.type === "m.room.message" && 
                         e.sender.startsWith(`@_plural_${system.slug}_`) &&
-                        e.content?.["m.relates_to"]?.rel_type !== "m.replace"
+                        e.content?.["m.relates_to"]?.rel_type !== "m.replace" &&
+                        !e.unsigned?.redacted_by &&
+                        Object.keys(e.content || {}).length > 0
                     );
                 }
 
