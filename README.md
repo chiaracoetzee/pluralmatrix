@@ -28,34 +28,39 @@ A high-performance Matrix Application Service for Plurality, featuring **"Zero-F
 ## Setup & Installation
 
 ### 1. Generate Secure Tokens
-You will need several random strings for security. Run these commands to generate them:
+You will need several unique random strings for security. You can generate them using this command (run it multiple times to get different values):
 ```bash
-# For AS_TOKEN, HS_TOKEN, and registration_shared_secret
-openssl rand -hex 32
-
-# For JWT_SECRET
 openssl rand -hex 32
 ```
 
 ### 2. Configure Files
-Follow this mapping carefully to ensure all services can communicate:
+Follow this mapping carefully to ensure all services can communicate. **Warning:** If these don't match, Synapse or the App Service will fail to start.
 
-| Token Name | Source File | Destination File(s) |
-| :--- | :--- | :--- |
-| **AS_TOKEN** | `.env` | `synapse/config/app-service-registration.yaml` (`as_token`) |
-| **HS_TOKEN** | `.env` | `synapse/config/app-service-registration.yaml` (`hs_token`) |
-| **JWT_SECRET** | `.env` | (Used internally by App Service) |
-| **Shared Secret** | `synapse/config/homeserver.yaml` | (Used for registering users) |
+#### Secret Mapping Table
+
+| Token Purpose | Value Needed In... |
+| :--- | :--- |
+| **App Service Identity** | `synapse/config/app-service-registration.yaml` (`as_token`) **AND** `.env` (`AS_TOKEN`) **AND** `synapse/config/homeserver.yaml` (`modules -> config -> as_token`) |
+| **Homeserver Identity** | `synapse/config/app-service-registration.yaml` (`hs_token`) |
+| **User Registration** | `synapse/config/homeserver.yaml` (`registration_shared_secret`) |
+| **Dashboard Security** | `.env` (`JWT_SECRET`) |
+| **Internal Synapse Secrets** | `synapse/config/homeserver.yaml` (`macaroon_secret_key`, `form_secret`) |
+
+#### Step-by-Step Configuration
 
 1.  **Environment Variables**: 
-    `cp .env.example .env` and fill in your generated tokens and a `POSTGRES_PASSWORD`.
+    `cp .env.example .env` 
+    *   Fill in `AS_TOKEN` and `JWT_SECRET` with fresh random hex strings.
+    *   Set a secure `POSTGRES_PASSWORD`.
 2.  **Synapse Config**: 
-    `cp synapse/config/homeserver.yaml.example synapse/config/homeserver.yaml`. 
-    *   Replace `registration_shared_secret` with a random string.
-    *   Ensure `server_name` matches your domain (usually `localhost`).
+    `cp synapse/config/homeserver.yaml.example synapse/config/homeserver.yaml`
+    *   Replace all `"REPLACE_ME"` tokens with unique random hex strings.
+    *   Ensure the `as_token` under `modules -> config` matches the `AS_TOKEN` in your `.env`.
 3.  **App Service Registration**: 
-    `cp synapse/config/app-service-registration.yaml.example synapse/config/app-service-registration.yaml`.
-    *   The `as_token` and `hs_token` **must** match your `.env` file.
+    `cp synapse/config/app-service-registration.yaml.example synapse/config/app-service-registration.yaml`
+    *   `id`: Choose a unique string (e.g., `pluralmatrix`).
+    *   `as_token`: **Must match** the one in `.env` and `homeserver.yaml`.
+    *   `hs_token`: Use a fresh random hex string.
 4.  **Signing Key**:
     Synapse requires a signing key. Generate it using the Docker image:
     ```bash
@@ -74,11 +79,6 @@ The decrypter ghost needs a standard user account to log into Pantalaimon:
 sudo docker exec plural-synapse register_new_matrix_user -c /data/homeserver.yaml -u plural_decrypter -p decrypter_password --admin http://localhost:8008
 ```
 
-### 5. Port Reference
-*   **9000:** App Service Brain (Dashboard API)
-*   **8008:** Matrix Client API (Direct Synapse)
-*   **8010:** Decrypter Sidecar Proxy (Pantalaimon)
-
 ## Usage
 
 ### Commands
@@ -93,9 +93,8 @@ Simply send a message with your configured member tags (e.g., `[Name] Message`).
 ## Development & Testing
 
 ### Running Tests
-To avoid CLI hangs, always pipe output to a log file:
 ```bash
-cd app-service && npm test > test_output.log 2>&1; cat test_output.log
+cd app-service && npm test
 ```
 The suite includes full E2E roundtrips for both **plaintext** and **encrypted** rooms.
 
