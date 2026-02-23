@@ -3,7 +3,7 @@ import { getBridge, handleEvent, prisma } from "../bot";
 
 const PANTALAIMON_URL = "http://plural-pantalaimon:8010";
 const DECRYPTER_USER = "plural_decrypter";
-const DECRYPTER_PASS = "decrypter_password";
+const DECRYPTER_PASS = process.env.DECRYPTER_PASSWORD || "decrypter_password";
 
 export class DecrypterService {
     private client: MatrixClient | null = null;

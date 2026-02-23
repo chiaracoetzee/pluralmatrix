@@ -21,13 +21,14 @@ if [ -z "$PG_PASS" ]; then
     PG_PASS=$(gen_token)
 fi
 
-echo "🛡️ Generating secure tokens..."
+echo "🛡️ Generating secure tokens and passwords..."
 AS_TOKEN=$(gen_token)
 HS_TOKEN=$(gen_token)
 JWT_SECRET=$(gen_token)
 REG_SECRET=$(gen_token)
 MACAROON_SECRET=$(gen_token)
 FORM_SECRET=$(gen_token)
+DECRYPTER_PASS=$(gen_token)
 
 # 2. Configure .env
 echo "📝 Configuring .env..."
@@ -37,6 +38,7 @@ sed -i "s|DATABASE_URL=.*|DATABASE_URL=postgresql://synapse:$PG_PASS@postgres:54
 sed -i "s/SYNAPSE_SERVER_NAME=.*/SYNAPSE_SERVER_NAME=$DOMAIN/" .env
 sed -i "s/AS_TOKEN=.*/AS_TOKEN=$AS_TOKEN/" .env
 sed -i "s/JWT_SECRET=.*/JWT_SECRET=$JWT_SECRET/" .env
+sed -i "s/DECRYPTER_PASSWORD=.*/DECRYPTER_PASSWORD=$DECRYPTER_PASS/" .env
 
 # 3. Configure Synapse (homeserver.yaml)
 echo "🌌 Configuring homeserver.yaml..."
@@ -55,10 +57,15 @@ sed -i "s/id: .*/id: pluralmatrix/" synapse/config/app-service-registration.yaml
 sed -i "s/as_token: .*/as_token: $AS_TOKEN/" synapse/config/app-service-registration.yaml
 sed -i "s/hs_token: .*/hs_token: $HS_TOKEN/" synapse/config/app-service-registration.yaml
 
+# 4.5 Configure Pantalaimon
+echo "🛡️ Configuring pantalaimon.conf..."
+sed -i "s/Password = .*/Password = $DECRYPTER_PASS/" pantalaimon/pantalaimon.conf
+
 # 5. Generate Signing Key
 echo "✒️ Generating Synapse signing key..."
 sudo docker run -it --rm -v "$(pwd)/synapse/config:/data" \
     -e SYNAPSE_SERVER_NAME=$DOMAIN \
+    -e SYNAPSE_REPORT_STATS=no \
     matrixdotorg/synapse:latest generate
 
 # 6. Finalize project name in scripts
@@ -71,7 +78,8 @@ echo "✅ Setup Complete!"
 echo "--------------------------------------------------------"
 echo "🚀 NEXT STEPS:"
 echo "1. Start the stack: ./restart-stack.sh"
-echo "2. Register the decrypter: sudo docker exec plural-synapse register_new_matrix_user -c /data/homeserver.yaml -u plural_decrypter -p decrypter_password --admin http://localhost:8008"
+echo "2. Register the decrypter user:"
+echo "   sudo docker exec plural-synapse register_new_matrix_user -c /data/homeserver.yaml -u plural_decrypter -p $DECRYPTER_PASS --admin http://localhost:8008"
 echo ""
 echo "⚙️ MIGRATION TO EXISTING SYNAPSE INSTALL:"
 echo "If you want to use PluralMatrix with your existing Synapse install, you must:"
