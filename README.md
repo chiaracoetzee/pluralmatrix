@@ -15,6 +15,20 @@ A high-performance Matrix Application Service for Plurality, featuring **"Zero-F
     *   **Deduplication:** Robust event handling prevents double-processing across bridge and sidecar layers.
 *   **Security:** Enforced Zod schema validation and mandatory secret management (JWT, tokens).
 
+## Visuals
+
+### PluralMatrix Dashboard
+The central hub for managing your system and members.
+![Dashboard](docs/screenshots/dashboard.png)
+
+### Member Editor
+Detailed management of member profiles, proxy tags, and custom colors.
+![Editor](docs/screenshots/editor.png)
+
+### High-Fidelity Proxying
+Seamless, "Zero-Flash" proxying in action within the Cinny Matrix client.
+![Chat](docs/screenshots/chat.png)
+
 ## Architecture
 
 *   **Synapse (Homeserver):** The core Matrix server (`port 8008`).
