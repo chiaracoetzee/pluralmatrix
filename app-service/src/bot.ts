@@ -20,6 +20,13 @@ const sendRichText = async (intent: Intent, roomId: string, text: string) => {
     });
 };
 
+const getRoomMessages = async (botClient: any, roomId: string, limit: number = 50) => {
+    return botClient.doRequest("GET", `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/messages`, {
+        limit,
+        dir: 'b'
+    });
+};
+
 // Configuration
 const REGISTRATION_PATH = "/data/app-service-registration.yaml";
 const HOMESERVER_URL = process.env.SYNAPSE_URL || "http://localhost:8008";
@@ -166,6 +173,172 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
             info += `--- \n* **Proxy Tags:** ${tags || "None"}`;
 
             await sendRichText(bridgeInstance.getIntent(), roomId, info);
+            return;
+        }
+
+        // 3. pk;edit <text> - Edit last message or replied message
+        if (cmd === "edit" || cmd === "e") {
+            const system = await proxyCache.getSystemRules(sender, prismaClient);
+            if (!system) return;
+
+            const newText = parts.slice(1).join(" ");
+            if (!newText) return;
+
+            let targetEvent: any;
+            const relatesTo = event.content["m.relates_to"] as any;
+            const replyTo = relatesTo?.["m.in_reply_to"]?.event_id;
+
+            if (replyTo) {
+                try {
+                    console.log(`[Edit] Resolving reply to: ${replyTo}`);
+                    targetEvent = await bridgeInstance.getBot().getClient().getEvent(roomId, replyTo);
+                    if (targetEvent) {
+                         // Ensure event_id is set even if the SDK returns a raw event
+                         if (!targetEvent.event_id) targetEvent.event_id = replyTo;
+                         console.log(`[Edit] Fetched target event: ${targetEvent.event_id}, type: ${targetEvent.type}, sender: ${targetEvent.sender}`);
+                    }
+                } catch (e: any) {
+                    console.error(`[Edit] Failed to fetch replied-to event:`, e.message);
+                }
+            } else {
+                const botClient = bridgeInstance.getBot().getClient();
+                const scrollback = await getRoomMessages(botClient, roomId, 50);
+                // Find the LATEST event from this system (can be an edit)
+                targetEvent = scrollback.chunk.find((e: any) => 
+                    e.type === "m.room.message" && 
+                    e.sender.startsWith(`@_plural_${system.slug}_`)
+                );
+            }
+
+            if (targetEvent) {
+                // To get the latest text, we check for m.new_content
+                const content = targetEvent.content || {};
+                targetEvent.latestText = content["m.new_content"]?.body || content.body;
+
+                // If the found event is an edit itself, we must find the original event ID.
+                // Matrix edits have m.relates_to.rel_type = m.replace
+                const relatesTo = content["m.relates_to"];
+                
+                if (relatesTo?.rel_type === "m.replace" && relatesTo?.event_id) {
+                    console.log(`[Edit] Target is an edit of ${relatesTo.event_id}. Redirecting to original.`);
+                    targetEvent.original_event_id = relatesTo.event_id;
+                } else {
+                    targetEvent.original_event_id = targetEvent.event_id;
+                }
+            }
+
+            if (!targetEvent || !targetEvent.sender.startsWith(`@_plural_${system.slug}_`)) {
+                await bridgeInstance.getIntent().sendText(roomId, "Could not find a proxied message to edit.");
+                return;
+            }
+
+            console.log(`[Edit] Target found: ${targetEvent.original_event_id} (Latest: ${targetEvent.event_id}) from ${targetEvent.sender}`);
+            const ghostIntent = bridgeInstance.getIntent(targetEvent.sender);
+            
+            const editPayload = {
+                msgtype: "m.text",
+                body: ` * ${newText}`,
+                "m.new_content": {
+                    msgtype: "m.text",
+                    body: newText
+                },
+                "m.relates_to": {
+                    rel_type: "m.replace",
+                    event_id: targetEvent.original_event_id
+                }
+            };
+
+            console.log(`[Edit] Sending edit event for ${targetEvent.original_event_id}:`, JSON.stringify(editPayload));
+            await ghostIntent.sendEvent(roomId, "m.room.message", editPayload);
+            
+            await safeRedact(bridgeInstance, roomId, eventId, "PluralCommand");
+            return;
+        }
+
+        // 4. pk;reproxy <slug> - Change the member of a proxied message
+        if (cmd === "reproxy" || cmd === "rp") {
+            const system = await proxyCache.getSystemRules(sender, prismaClient);
+            if (!system) return;
+
+            const memberSlug = parts[1]?.toLowerCase();
+            const member = system.members.find(m => m.slug === memberSlug);
+            if (!member) {
+                await bridgeInstance.getIntent().sendText(roomId, `No member found with ID: ${memberSlug}`);
+                return;
+            }
+
+            let targetEvent: any;
+            const relatesTo = event.content["m.relates_to"] as any;
+            const replyTo = relatesTo?.["m.in_reply_to"]?.event_id;
+
+            if (replyTo) {
+                try {
+                    console.log(`[Edit] Resolving reply to: ${replyTo}`);
+                    targetEvent = await bridgeInstance.getBot().getClient().getEvent(roomId, replyTo);
+                    if (targetEvent) {
+                         // Ensure event_id is set even if the SDK returns a raw event
+                         if (!targetEvent.event_id) targetEvent.event_id = replyTo;
+                         console.log(`[Edit] Fetched target event: ${targetEvent.event_id}, type: ${targetEvent.type}, sender: ${targetEvent.sender}`);
+                    }
+                } catch (e: any) {
+                    console.error(`[Edit] Failed to fetch replied-to event:`, e.message);
+                }
+            } else {
+                const botClient = bridgeInstance.getBot().getClient();
+                const scrollback = await getRoomMessages(botClient, roomId, 50);
+                // Find the LATEST event from this system (can be an edit)
+                targetEvent = scrollback.chunk.find((e: any) => 
+                    e.type === "m.room.message" && 
+                    e.sender.startsWith(`@_plural_${system.slug}_`)
+                );
+            }
+
+            if (targetEvent) {
+                // To get the latest text, we check for m.new_content
+                const content = targetEvent.content || {};
+                targetEvent.latestText = content["m.new_content"]?.body || content.body;
+
+                // If the found event is an edit itself, we must find the original event ID.
+                // Matrix edits have m.relates_to.rel_type = m.replace
+                const relatesTo = content["m.relates_to"];
+                
+                if (relatesTo?.rel_type === "m.replace" && relatesTo?.event_id) {
+                    console.log(`[Edit] Target is an edit of ${relatesTo.event_id}. Redirecting to original.`);
+                    targetEvent.original_event_id = relatesTo.event_id;
+                } else {
+                    targetEvent.original_event_id = targetEvent.event_id;
+                }
+            }
+
+            if (!targetEvent || !targetEvent.sender.startsWith(`@_plural_${system.slug}_`)) {
+                await bridgeInstance.getIntent().sendText(roomId, "Could not find a proxied message to reproxy.");
+                return;
+            }
+
+            const oldText = targetEvent.latestText;
+
+            // Delete original message
+            await safeRedact(bridgeInstance, roomId, targetEvent.original_event_id, "PluralReproxy");
+
+            // Send new message from correct ghost
+            const ghostUserId = `@_plural_${system.slug}_${member.slug}:${DOMAIN}`;
+            const intent = bridgeInstance.getIntent(ghostUserId);
+            
+            const finalDisplayName = system.systemTag 
+                ? `${member.displayName || member.name} ${system.systemTag}`
+                : (member.displayName || member.name);
+
+            await intent.ensureRegistered();
+            await intent.join(roomId);
+            await intent.setDisplayName(finalDisplayName);
+            if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
+
+            await intent.sendEvent(roomId, "m.room.message", {
+                msgtype: "m.text",
+                body: oldText
+            });
+
+            await safeRedact(bridgeInstance, roomId, eventId, "PluralCommand");
             return;
         }
     }

@@ -63,6 +63,8 @@ sudo docker exec ${PROJECT_NAME}-postgres psql -U synapse -d template1 -c "DO \$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'plural_app') THEN
         CREATE USER plural_app WITH PASSWORD '$PG_PASS';
+    ELSE
+        ALTER USER plural_app WITH PASSWORD '$PG_PASS';
     END IF;
 END \$\$;"
 sudo docker exec ${PROJECT_NAME}-postgres psql -U synapse -d plural_db -c "GRANT ALL PRIVILEGES ON DATABASE plural_db TO plural_app;"
