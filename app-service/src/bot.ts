@@ -63,11 +63,39 @@ const safeRedact = async (bridgeInstance: Bridge, roomId: string, eventId: strin
 export const handleEvent = async (request: Request<WeakEvent>, context: BridgeContext | undefined, bridgeInstance: Bridge, prismaClient: PrismaClient) => {
     const event = request.getData();
     const eventId = event.event_id;
+    const roomId = event.room_id;
+    const sender = event.sender;
     
     // Auto-accept invites
     if (event.type === "m.room.member" && event.state_key === bridgeInstance.getBot().getUserId() && event.content.membership === "invite") {
         console.log(`[Bot] Received invite to ${event.room_id}. Joining...`);
         await bridgeInstance.getIntent().join(event.room_id);
+        return;
+    }
+
+    // --- REACTION DELETION (❌) ---
+    if (event.type === "m.reaction") {
+        const relatesTo = event.content?.["m.relates_to"] as any;
+        if (relatesTo?.rel_type === "m.annotation") {
+            const reaction = relatesTo.key;
+            if (reaction?.startsWith("❌") || reaction === "x" || reaction === ":x:") {
+                const targetEventId = relatesTo.event_id;
+                const system = await proxyCache.getSystemRules(sender, prismaClient);
+                if (!system) return;
+
+                try {
+                    const targetEvent = await bridgeInstance.getBot().getClient().getEvent(roomId, targetEventId);
+                    if (targetEvent && targetEvent.sender.startsWith(`@_plural_${system.slug}_`)) {
+                        console.log(`[Janitor] Deleting message ${targetEventId} via reaction from ${sender}`);
+                        await safeRedact(bridgeInstance, roomId, targetEventId, "UserRequest");
+                        // Also redact the reaction itself to keep it clean
+                        await safeRedact(bridgeInstance, roomId, eventId, "Cleanup");
+                    }
+                } catch (e: any) {
+                    console.error(`[Janitor] Error handling reaction deletion:`, e.message);
+                }
+            }
+        }
         return;
     }
 
@@ -117,8 +145,6 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
     if (event.type !== "m.room.message" || !event.content || event.content.body === undefined) return;
     
     const body = event.content.body as string; 
-    const sender = event.sender;
-    const roomId = event.room_id;
 
     // Loop prevention: Ignore the bot, the decrypter sidecar, and ghosts
     const botUserId = bridgeInstance.getBot().getUserId();
@@ -362,6 +388,46 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
 
             await safeRedact(bridgeInstance, roomId, eventId, "PluralCommand");
             return;
+        }
+
+        // 5. pk;message -delete | pk;msg -d
+        if (cmd === "message" || cmd === "msg" || cmd === "m") {
+            const subCmd = parts[1]?.toLowerCase();
+            if (subCmd === "-delete" || subCmd === "-d") {
+                const system = await proxyCache.getSystemRules(sender, prismaClient);
+                if (!system) return;
+
+                let targetEvent: any;
+                const relatesTo = event.content["m.relates_to"] as any;
+                const replyTo = relatesTo?.["m.in_reply_to"]?.event_id;
+
+                if (replyTo) {
+                    try {
+                        targetEvent = await bridgeInstance.getBot().getClient().getEvent(roomId, replyTo);
+                        if (targetEvent && !targetEvent.event_id) targetEvent.event_id = replyTo;
+                    } catch (e) {}
+                } else {
+                    const botClient = bridgeInstance.getBot().getClient();
+                    const scrollback = await getRoomMessages(botClient, roomId, 50);
+                    targetEvent = scrollback.chunk.find((e: any) => 
+                        e.type === "m.room.message" && 
+                        e.sender.startsWith(`@_plural_${system.slug}_`) &&
+                        e.content?.["m.relates_to"]?.rel_type !== "m.replace"
+                    );
+                }
+
+                if (targetEvent && targetEvent.sender.startsWith(`@_plural_${system.slug}_`)) {
+                    const originalId = targetEvent.content?.["m.relates_to"]?.rel_type === "m.replace"
+                        ? targetEvent.content["m.relates_to"].event_id
+                        : targetEvent.event_id;
+
+                    console.log(`[Janitor] Deleting message ${originalId} via command from ${sender}`);
+                    await safeRedact(bridgeInstance, roomId, originalId, "UserRequest");
+                }
+
+                await safeRedact(bridgeInstance, roomId, eventId, "PluralCommand");
+                return;
+            }
         }
     }
     
