@@ -42,6 +42,7 @@ sed -i "s/POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$PG_PASS/" .env
 sed -i "s|DATABASE_URL=.*|DATABASE_URL=postgresql://plural_app:$PG_PASS@${PROJECT_NAME}-postgres:5432/plural_db|" .env
 sed -i "s/PROJECT_NAME=.*/PROJECT_NAME=$PROJECT_NAME/" .env
 sed -i "s/SYNAPSE_SERVER_NAME=.*/SYNAPSE_SERVER_NAME=$DOMAIN/" .env
+echo "SYNAPSE_DOMAIN=$DOMAIN" >> .env
 sed -i "s/AS_TOKEN=.*/AS_TOKEN=$AS_TOKEN/" .env
 sed -i "s/JWT_SECRET=.*/JWT_SECRET=$JWT_SECRET/" .env
 sed -i "s/DECRYPTER_PASSWORD=.*/DECRYPTER_PASSWORD=$DECRYPTER_PASS/" .env
@@ -89,7 +90,7 @@ echo "2. Seed the database (Optional):"
 echo "   sudo docker exec -it ${PROJECT_NAME}-app-service npx ts-node seed-db.ts"
 echo ""
 echo "📢 IMPORTANT REMINDER:"
-echo "   You must /invite @plural_bot:localhost to every room you want it to operate in!"
+echo "   You must /invite @plural_bot:$DOMAIN to every room you want it to operate in!"
 echo ""
 echo "📊 VIEW LOGS:"
 echo "   sudo docker logs -f ${PROJECT_NAME}-app-service"

@@ -23,7 +23,7 @@ const sendRichText = async (intent: Intent, roomId: string, text: string) => {
 // Configuration
 const REGISTRATION_PATH = "/data/app-service-registration.yaml";
 const HOMESERVER_URL = process.env.SYNAPSE_URL || "http://localhost:8008";
-const DOMAIN = process.env.SYNAPSE_DOMAIN || "localhost";
+const DOMAIN = process.env.SYNAPSE_SERVER_NAME || process.env.SYNAPSE_DOMAIN || "localhost";
 const DECRYPTER_ID = `@plural_decrypter:${DOMAIN}`;
 
 // Placeholder for the bridge instance
@@ -254,6 +254,40 @@ export const startMatrixBot = async () => {
 
     // 3. Start Decrypter Sidecar
     await decrypterService.start();
+
+    // 4. Cleanup: Join any missed invitations while we were offline
+    await joinPendingInvites(bridge);
+};
+
+const joinPendingInvites = async (bridgeInstance: Bridge) => {
+    console.log("[Bot] Checking for pending invitations...");
+    try {
+        const botClient = bridgeInstance.getBot().getClient();
+        
+        // We do a minimal initial sync to find current invitations
+        const syncData = await botClient.doRequest("GET", "/_matrix/client/v3/sync", {
+            filter: '{"room":{"timeline":{"limit":1}}}'
+        });
+
+        if (syncData.rooms?.invite) {
+            const inviteRoomIds = Object.keys(syncData.rooms.invite);
+            if (inviteRoomIds.length > 0) {
+                console.log(`[Bot] Found ${inviteRoomIds.length} pending invitations. Joining...`);
+                for (const roomId of inviteRoomIds) {
+                    try {
+                        await bridgeInstance.getIntent().join(roomId);
+                        console.log(`[Bot] Successfully joined ${roomId}`);
+                    } catch (joinErr: any) {
+                        console.error(`[Bot] Failed to join ${roomId}:`, joinErr.message);
+                    }
+                }
+            } else {
+                console.log("[Bot] No pending invitations found.");
+            }
+        }
+    } catch (e: any) {
+        console.warn("[Bot] Failed to sweep invites:", e.message);
+    }
 };
 
 export const getBridge = () => bridge;
