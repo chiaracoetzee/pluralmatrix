@@ -86,9 +86,9 @@ cd app-service && npm test
 The suite includes full E2E roundtrips for both **plaintext** and **encrypted** rooms.
 
 ## Troubleshooting
-* **Logs:** `sudo docker logs -f plural-app-service`
-* **Synapse Logs:** `sudo docker logs -f plural-synapse`
-* **Pantalaimon Logs:** `sudo docker logs -f plural-pantalaimon`
+* **Logs:** `sudo docker logs -f <PROJECT_NAME>_app-service`
+* **Synapse Logs:** `sudo docker logs -f <PROJECT_NAME>_synapse`
+* **Pantalaimon Logs:** `sudo docker logs -f <PROJECT_NAME>_pantalaimon`
 * **Restart:** `./restart-stack.sh`
 * **Stop (Safe):** `./stop-stack.sh`
 * **Permission Issues:** If Synapse fails to write config, run: `sudo chown -R 991:991 synapse/config`

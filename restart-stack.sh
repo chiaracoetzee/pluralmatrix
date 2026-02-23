@@ -13,32 +13,48 @@ echo "🚀 Starting $PROJECT_NAME Stack Refresh..."
 sudo docker network create ${PROJECT_NAME}_plural-net 2>/dev/null || true
 
 # 1. Ensure Postgres is running
-if ! sudo docker ps -a | grep -q " postgres$"; then
+if ! sudo docker ps -a | grep -q " ${PROJECT_NAME}_postgres$"; then
   echo "🐘 Starting fresh Postgres container..."
   sudo docker run -d \
-    --name postgres \
-    --network ${PROJECT_NAME}_plural-net \
+    --name ${PROJECT_NAME}_postgres \
     -v ${PROJECT_NAME}_postgres_data:/var/lib/postgresql/data \
     --env-file ./.env \
     -e POSTGRES_DB=plural_db \
     -e POSTGRES_USER=synapse \
     postgres:15
 else
-  sudo docker start postgres 2>/dev/null || true
+  sudo docker start ${PROJECT_NAME}_postgres 2>/dev/null || true
 fi
 
-# 1.5 Ensure plural_db exists
-echo "🐘 Ensuring plural_db exists..."
-sudo docker exec postgres psql -U synapse -tc "SELECT 1 FROM pg_database WHERE datname = 'plural_db'" | grep -q 1 || \
-sudo docker exec postgres psql -U synapse -c "CREATE DATABASE plural_db"
+# Always ensure it is connected to the current network instance
+sudo docker network connect ${PROJECT_NAME}_plural-net ${PROJECT_NAME}_postgres 2>/dev/null || true
+
+# 1.5 Ensure plural_db and restricted user exist
+echo "🐘 Ensuring plural_db and plural_app user exist..."
+# Get password from .env
+PG_PASS=$(grep POSTGRES_PASSWORD .env | cut -d '=' -f2)
+
+# Create DB if missing
+sudo docker exec ${PROJECT_NAME}_postgres psql -U synapse -tc "SELECT 1 FROM pg_database WHERE datname = 'plural_db'" | grep -q 1 || \
+sudo docker exec ${PROJECT_NAME}_postgres psql -U synapse -c "CREATE DATABASE plural_db"
+
+# Create Restricted User if missing and Grant Privileges
+sudo docker exec ${PROJECT_NAME}_postgres psql -U synapse -c "DO \$\$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'plural_app') THEN
+        CREATE USER plural_app WITH PASSWORD '$PG_PASS';
+    END IF;
+END \$\$;"
+sudo docker exec ${PROJECT_NAME}_postgres psql -U synapse -c "GRANT ALL PRIVILEGES ON DATABASE plural_db TO plural_app;"
+
 
 # 2. Ensure Synapse is running
 echo "🌌 Refreshing Synapse container..."
-sudo docker rm -f plural-synapse 2>/dev/null || true
+sudo docker rm -f ${PROJECT_NAME}_synapse 2>/dev/null || true
 # Fix permissions just in case
 sudo chown -R 991:991 synapse/config 2>/dev/null || true
 sudo docker run -d \
-  --name plural-synapse \
+  --name ${PROJECT_NAME}_synapse \
   --network ${PROJECT_NAME}_plural-net \
   -v "$(pwd)/synapse/config:/data" \
   -v "$(pwd)/synapse/modules:/modules" \
@@ -51,9 +67,9 @@ sudo docker run -d \
 
 # 2.5 Ensure Pantalaimon is running
 echo "🛡️ Refreshing Pantalaimon container..."
-sudo docker rm -f plural-pantalaimon 2>/dev/null || true
+sudo docker rm -f ${PROJECT_NAME}_pantalaimon 2>/dev/null || true
 sudo docker run -d \
-  --name plural-pantalaimon \
+  --name ${PROJECT_NAME}_pantalaimon \
   --network ${PROJECT_NAME}_plural-net \
   -p 8010:8010 \
   -v "$(pwd)/pantalaimon/pantalaimon.conf:/pantalaimon.conf" \
@@ -66,22 +82,22 @@ echo "📦 Rebuilding App Service image..."
 sudo docker build -t ${PROJECT_NAME}_app-service ./app-service
 
 # 4. Remove old container
-echo "🗑️ Removing old plural-app-service container..."
-sudo docker rm -f plural-app-service 2>/dev/null || true
+echo "🗑️ Removing old ${PROJECT_NAME}_app-service container..."
+sudo docker rm -f ${PROJECT_NAME}_app-service 2>/dev/null || true
 
 # 5. Start new container
-echo "🏃 Starting new plural-app-service container..."
+echo "🏃 Starting new ${PROJECT_NAME}_app-service container..."
 sudo docker run -d \
-  --name plural-app-service \
+  --name ${PROJECT_NAME}_app-service \
   --network ${PROJECT_NAME}_plural-net \
   --env-file ./.env \
   -v "$(pwd)/synapse/config/app-service-registration.yaml:/data/app-service-registration.yaml" \
-  -e SYNAPSE_URL="http://plural-synapse:8008" \
+  -e SYNAPSE_URL="http://${PROJECT_NAME}_synapse:8008" \
   -p 9000:9000 \
   ${PROJECT_NAME}_app-service
 
 # 6. Check status
 echo "📊 Current Status:"
-sudo docker ps --filter "name=plural-" --filter "name=postgres"
+sudo docker ps --filter "name=${PROJECT_NAME}_"
 
 echo "✅ Done! Services are initializing. App service will auto-sync DB schema."

@@ -34,7 +34,7 @@ DECRYPTER_PASS=$(gen_token)
 echo "📝 Configuring .env..."
 cp .env.example .env
 sed -i "s/POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$PG_PASS/" .env
-sed -i "s|DATABASE_URL=.*|DATABASE_URL=postgresql://synapse:$PG_PASS@postgres:5432/plural_db|" .env
+sed -i "s|DATABASE_URL=.*|DATABASE_URL=postgresql://plural_app:$PG_PASS@${PROJECT_NAME}_postgres:5432/plural_db|" .env
 sed -i "s/SYNAPSE_SERVER_NAME=.*/SYNAPSE_SERVER_NAME=$DOMAIN/" .env
 sed -i "s/AS_TOKEN=.*/AS_TOKEN=$AS_TOKEN/" .env
 sed -i "s/JWT_SECRET=.*/JWT_SECRET=$JWT_SECRET/" .env
@@ -49,6 +49,7 @@ sed -i "s/registration_shared_secret: \"REPLACE_ME\"/registration_shared_secret:
 sed -i "s/macaroon_secret_key: \"REPLACE_ME\"/macaroon_secret_key: \"$MACAROON_SECRET\"/" synapse/config/homeserver.yaml
 sed -i "s/form_secret: \"REPLACE_ME\"/form_secret: \"$FORM_SECRET\"/" synapse/config/homeserver.yaml
 sed -i "s/as_token: \"secret_token\"/as_token: \"$AS_TOKEN\"/" synapse/config/homeserver.yaml
+sed -i "s/app-service:9000/${PROJECT_NAME}_app-service:9000/" synapse/config/homeserver.yaml
 
 # 4. Configure App Service Registration
 echo "🔑 Configuring app-service-registration.yaml..."
@@ -72,6 +73,7 @@ sudo docker run -it --rm -v "$(pwd)/synapse/config:/data" \
 PROJECT_NAME=$(basename "$(pwd)")
 echo "🏷️ Setting project name to: $PROJECT_NAME"
 sed -i "s/^PROJECT_NAME=.*/PROJECT_NAME=\"$PROJECT_NAME\"/" restart-stack.sh
+sed -i "s/^PROJECT_NAME=.*/PROJECT_NAME=\"$PROJECT_NAME\"/" stop-stack.sh
 
 echo ""
 echo "✅ Setup Complete!"
@@ -79,7 +81,13 @@ echo "--------------------------------------------------------"
 echo "🚀 NEXT STEPS:"
 echo "1. Start the stack: ./restart-stack.sh"
 echo "2. Register the decrypter user:"
-echo "   sudo docker exec plural-synapse register_new_matrix_user -c /data/homeserver.yaml -u plural_decrypter -p $DECRYPTER_PASS --admin http://localhost:8008"
+echo "   sudo docker exec ${PROJECT_NAME}_synapse register_new_matrix_user -c /data/homeserver.yaml -u plural_decrypter -p $DECRYPTER_PASS --admin http://localhost:8008"
+echo "3. Seed the database (Optional):"
+echo "   sudo docker exec -it ${PROJECT_NAME}_app-service npx ts-node seed-db.ts"
+echo ""
+echo "📊 VIEW LOGS:"
+echo "   sudo docker logs -f ${PROJECT_NAME}_app-service"
+echo "   sudo docker logs -f ${PROJECT_NAME}_synapse"
 echo ""
 echo "⚙️ MIGRATION TO EXISTING SYNAPSE INSTALL:"
 echo "If you want to use PluralMatrix with your existing Synapse install, you must:"
