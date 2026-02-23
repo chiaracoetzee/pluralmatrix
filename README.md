@@ -27,29 +27,54 @@ A high-performance Matrix Application Service for Plurality, featuring **"Zero-F
 
 ## Setup & Installation
 
-### 1. Configure Secrets
+### 1. Generate Secure Tokens
+You will need several random strings for security. Run these commands to generate them:
+```bash
+# For AS_TOKEN, HS_TOKEN, and registration_shared_secret
+openssl rand -hex 32
+
+# For JWT_SECRET
+openssl rand -hex 32
+```
+
+### 2. Configure Files
+Follow this mapping carefully to ensure all services can communicate:
+
+| Token Name | Source File | Destination File(s) |
+| :--- | :--- | :--- |
+| **AS_TOKEN** | `.env` | `synapse/config/app-service-registration.yaml` (`as_token`) |
+| **HS_TOKEN** | `.env` | `synapse/config/app-service-registration.yaml` (`hs_token`) |
+| **JWT_SECRET** | `.env` | (Used internally by App Service) |
+| **Shared Secret** | `synapse/config/homeserver.yaml` | (Used for registering users) |
+
 1.  **Environment Variables**: 
-    `cp .env.example .env` and fill in `POSTGRES_PASSWORD`, `AS_TOKEN`, `HS_TOKEN`, and `JWT_SECRET`.
+    `cp .env.example .env` and fill in your generated tokens and a `POSTGRES_PASSWORD`.
 2.  **Synapse Config**: 
     `cp synapse/config/homeserver.yaml.example synapse/config/homeserver.yaml`. 
-    *Note: Replace all "REPLACE_ME" tokens.*
+    *   Replace `registration_shared_secret` with a random string.
+    *   Ensure `server_name` matches your domain (usually `localhost`).
 3.  **App Service Registration**: 
     `cp synapse/config/app-service-registration.yaml.example synapse/config/app-service-registration.yaml`.
-    *Note: Ensure tokens match your `.env`.*
+    *   The `as_token` and `hs_token` **must** match your `.env` file.
+4.  **Signing Key**:
+    Synapse requires a signing key. Generate it using the Docker image:
+    ```bash
+    sudo docker run -it --rm -v $(pwd)/synapse/config:/data matrixdotorg/synapse:latest generate
+    ```
 
-### 2. Launch the Stack
-The stack includes 5 services (Synapse, Postgres, App Service, Pantalaimon, and the Gatekeeper). Use the helper script to ensure clean volume mapping:
+### 3. Launch the Stack
+Use the helper script to build and launch everything:
 ```bash
 ./restart-stack.sh
 ```
 
-### 3. Register the Decrypter User
+### 4. Register the Decrypter User
 The decrypter ghost needs a standard user account to log into Pantalaimon:
 ```bash
 sudo docker exec plural-synapse register_new_matrix_user -c /data/homeserver.yaml -u plural_decrypter -p decrypter_password --admin http://localhost:8008
 ```
 
-### 4. Port Reference
+### 5. Port Reference
 *   **9000:** App Service Brain (Dashboard API)
 *   **8008:** Matrix Client API (Direct Synapse)
 *   **8010:** Decrypter Sidecar Proxy (Pantalaimon)
@@ -70,8 +95,7 @@ Simply send a message with your configured member tags (e.g., `[Name] Message`).
 ### Running Tests
 To avoid CLI hangs, always pipe output to a log file:
 ```bash
-cd app-service
-npm test > test_output.log 2>&1; cat test_output.log
+cd app-service && npm test > test_output.log 2>&1; cat test_output.log
 ```
 The suite includes full E2E roundtrips for both **plaintext** and **encrypted** rooms.
 
