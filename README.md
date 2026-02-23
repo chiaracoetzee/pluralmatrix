@@ -54,13 +54,7 @@ Once the setup is complete, use the helper script to build and launch the 5 core
 ./restart-stack.sh
 ```
 
-### 3. Register the Decrypter User
-The decrypter ghost needs a standard user account to log into Pantalaimon:
-```bash
-sudo docker exec plural-synapse register_new_matrix_user -c /data/homeserver.yaml -u plural_decrypter -p decrypter_password --admin http://localhost:8008
-```
-
-### 4. Port Reference
+### 3. Port Reference
 *   **9000:** App Service Brain (Dashboard API)
 *   **8008:** Matrix Client API (Direct Synapse)
 *   **8010:** Decrypter Sidecar Proxy (Pantalaimon)

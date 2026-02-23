@@ -80,6 +80,23 @@ sudo docker run -d \
   -p 8008:8008 \
   matrixdotorg/synapse:latest
 
+# Wait for Synapse to be ready
+echo "🌌 Waiting for Synapse to be ready..."
+until curl -s http://localhost:8008/_matrix/static/ >/dev/null 2>&1; do
+  echo -n "."
+  sleep 2
+done
+echo " Ready!"
+
+# 2.1 Ensure Decrypter User exists
+echo "🛡️ Ensuring Decrypter User exists..."
+DECRYPTER_PASSWORD=$(grep DECRYPTER_PASSWORD .env | cut -d '=' -f2)
+sudo docker exec ${PROJECT_NAME}-synapse register_new_matrix_user \
+    -c /data/homeserver.yaml \
+    -u plural_decrypter \
+    -p "$DECRYPTER_PASSWORD" \
+    --admin http://localhost:8008 2>/dev/null || echo "   (Decrypter user already exists or registration failed)"
+
 # 2.5 Ensure Pantalaimon is running
 echo "🛡️ Refreshing Pantalaimon container..."
 sudo docker rm -f ${PROJECT_NAME}-pantalaimon 2>/dev/null || true
