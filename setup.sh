@@ -57,13 +57,15 @@ sed -i "s/app-service:9000/${PROJECT_NAME}-app-service:9000/" synapse/config/hom
 # 4. Configure App Service Registration
 echo "🔑 Configuring app-service-registration.yaml..."
 cp synapse/config/app-service-registration.yaml.example synapse/config/app-service-registration.yaml
-sed -i "s/id: .*/id: pluralmatrix/" synapse/config/app-service-registration.yaml
+sed -i "s/id: .*/id: ${PROJECT_NAME}/" synapse/config/app-service-registration.yaml
 sed -i "s/as_token: .*/as_token: $AS_TOKEN/" synapse/config/app-service-registration.yaml
 sed -i "s/hs_token: .*/hs_token: $HS_TOKEN/" synapse/config/app-service-registration.yaml
+sed -i "s|url: .*|url: http://${PROJECT_NAME}-app-service:8008|" synapse/config/app-service-registration.yaml
 
 # 4.5 Configure Pantalaimon
 echo "🛡️ Configuring pantalaimon.conf..."
 sed -i "s/Password = .*/Password = $DECRYPTER_PASS/" pantalaimon/pantalaimon.conf
+sed -i "s|Homeserver = .*|Homeserver = http://${PROJECT_NAME}-synapse:8008|" pantalaimon/pantalaimon.conf
 
 # 5. Generate Signing Key
 echo "✒️ Generating Synapse signing key..."

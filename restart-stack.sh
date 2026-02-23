@@ -103,6 +103,7 @@ sudo docker run -d \
   --env-file ./.env \
   -v "$(pwd)/synapse/config/app-service-registration.yaml:/data/app-service-registration.yaml" \
   -e SYNAPSE_URL="http://${PROJECT_NAME}-synapse:8008" \
+  -e PANTALAIMON_URL="http://${PROJECT_NAME}-pantalaimon:8010" \
   -p 9000:9000 \
   ${PROJECT_NAME}-app-service
 
