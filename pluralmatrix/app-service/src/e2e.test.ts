@@ -1,5 +1,5 @@
 import { registerUser, getMatrixClient, getPluralMatrixToken, setupTestRoom } from './test/e2e-helper';
-import { MatrixClient, LogService, LogLevel } from 'matrix-bot-sdk';
+import { MatrixClient, LogService } from 'matrix-appservice-bridge/node_modules/@vector-im/matrix-bot-sdk';
 
 // Suppress excessive logs during tests
 LogService.setLogger({
@@ -15,7 +15,8 @@ describe('PluralMatrix E2E Roundtrip', () => {
     let mxid: string;
     let jwt: string;
     let roomId: string;
-    const username = `e2e_user_${Date.now()}`;
+    const suffix = Math.random().toString(36).substring(7);
+    const username = `e2e_user_${suffix}`;
     const password = 'e2e_password_123';
 
     // Increase timeout for E2E operations (Synapse can be slow)
@@ -38,7 +39,11 @@ describe('PluralMatrix E2E Roundtrip', () => {
     });
 
     afterAll(async () => {
-        if (client) await client.stop();
+        if (client) {
+            await client.stop();
+        }
+        // Small delay to allow async handles to settle
+        await new Promise(resolve => setTimeout(resolve, 500));
     });
 
     it('should proxy a message from a newly created alter', async () => {
@@ -69,13 +74,15 @@ describe('PluralMatrix E2E Roundtrip', () => {
 
         // Start listening for the ghost message
         const ghostMessagePromise = new Promise<any>((resolve) => {
-            client.on('room.message', (roomIdMatch, event) => {
+            const listener = (roomIdMatch: string, event: any) => {
                 if (roomIdMatch === roomId && 
                     event.sender.startsWith('@_plural_') && 
                     event.content?.body === messageBody) {
+                    client.off('room.message', listener);
                     resolve(event);
                 }
-            });
+            };
+            client.on('room.message', listener);
         });
 
         console.log(`[E2E] Sending proxied message...`);
@@ -107,5 +114,49 @@ describe('PluralMatrix E2E Roundtrip', () => {
             // If getEvent fails because it was redacted, that's also a win in some Synapse configs
             console.log(`[E2E] Original message is gone/hidden.`);
         }
+    });
+
+    it('should proxy a message in an ENCRYPTED room', async () => {
+        const messageBody = "Encryption test message";
+        const proxyPrefix = "e2e:";
+
+        // 1. Create a new room and enable encryption
+        console.log(`[E2E-E2EE] Creating encrypted room...`);
+        const e2eeRoomId = await setupTestRoom(client);
+        await client.sendStateEvent(e2eeRoomId, "m.room.encryption", "", { algorithm: "m.megolm.v1.aes-sha2" });
+        
+        // 2. Invite Decrypter Ghost manually (matching our sidecar logic)
+        console.log(`[E2E-E2EE] Inviting decrypter ghost...`);
+        await client.inviteUser("@plural_decrypter:localhost", e2eeRoomId);
+
+        // Wait for bot and decrypter to settle
+        await new Promise(resolve => setTimeout(resolve, 5000));
+
+        // 3. Start listening for the ghost message
+        const ghostMessagePromise = new Promise<any>((resolve) => {
+            const listener = (roomIdMatch: string, event: any) => {
+                // IMPORTANT: The client will receive this as DECRYPTED because it has the keys
+                if (roomIdMatch === e2eeRoomId && 
+                    event.sender.startsWith('@_plural_') && 
+                    event.content?.body === messageBody) {
+                    client.off('room.message', listener);
+                    resolve(event);
+                }
+            };
+            client.on('room.message', listener);
+        });
+
+        console.log(`[E2E-E2EE] Sending message to encrypted room...`);
+        await client.sendMessage(e2eeRoomId, {
+            msgtype: "m.text",
+            body: `${proxyPrefix}${messageBody}`
+        });
+
+        // 4. Wait for ghost to speak
+        console.log(`[E2E-E2EE] Waiting for ghost response...`);
+        const ghostEvent: any = await ghostMessagePromise;
+
+        expect(ghostEvent.content.body).toBe(messageBody);
+        console.log(`[E2E-E2EE] SUCCESS! Decrypted ghost response caught.`);
     });
 });

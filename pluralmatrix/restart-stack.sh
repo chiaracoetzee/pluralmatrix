@@ -47,6 +47,18 @@ else
   sudo docker restart plural-synapse
 fi
 
+# 2.5 Ensure Pantalaimon is running
+echo "🛡️ Refreshing Pantalaimon container..."
+sudo docker rm -f plural-pantalaimon 2>/dev/null || true
+sudo docker run -d \
+  --name plural-pantalaimon \
+  --network pluralmatrix_plural-net \
+  -p 8010:8010 \
+  -v "$(pwd)/pantalaimon/pantalaimon.conf:/pantalaimon.conf" \
+  -v pluralmatrix_pantalaimon_data:/data \
+  matrixdotorg/pantalaimon:latest \
+  -c /pantalaimon.conf --data-path /data
+
 # 3. Rebuild the App Service Image
 echo "📦 Rebuilding App Service image..."
 sudo docker build -t pluralmatrix_app-service ./app-service

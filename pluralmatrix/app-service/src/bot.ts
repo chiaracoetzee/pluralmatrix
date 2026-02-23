@@ -4,6 +4,7 @@ import * as yaml from "js-yaml";
 import * as fs from "fs";
 import { marked } from "marked";
 import { proxyCache } from "./services/cache";
+import { decrypterService } from "./services/decrypterService";
 
 // Initialize Prisma
 export const prisma = new PrismaClient();
@@ -23,12 +24,36 @@ const sendRichText = async (intent: Intent, roomId: string, text: string) => {
 const REGISTRATION_PATH = "/data/app-service-registration.yaml";
 const HOMESERVER_URL = process.env.SYNAPSE_URL || "http://localhost:8008";
 const DOMAIN = process.env.SYNAPSE_DOMAIN || "localhost";
+const DECRYPTER_ID = `@plural_decrypter:${DOMAIN}`;
 
 // Placeholder for the bridge instance
 let bridge: Bridge;
 
+// Track rooms where we've already warned about missing permissions
+const permissionWarnedRooms = new Set<string>();
+
+const safeRedact = async (bridgeInstance: Bridge, roomId: string, eventId: string, reason: string) => {
+    try {
+        await bridgeInstance.getBot().getClient().redactEvent(roomId, eventId, reason);
+    } catch (e: any) {
+        if (e.errcode === 'M_FORBIDDEN' || e.httpStatus === 403) {
+            if (!permissionWarnedRooms.has(roomId)) {
+                console.warn(`[Bot] Lacking redaction permissions in ${roomId}. Warning the room...`);
+                await bridgeInstance.getIntent().sendText(roomId, 
+                    "⚠️ I don't have permission to redact (delete) messages in this room. " +
+                    "To enable high-fidelity proxying and 'Zero-Flash' cleanup, please promote me to a Moderator or give me 'Redact events' permissions."
+                );
+                permissionWarnedRooms.add(roomId);
+            }
+        } else {
+            console.error(`[Janitor] Failed to redact message ${eventId}:`, e.message || e);
+        }
+    }
+};
+
 export const handleEvent = async (request: Request<WeakEvent>, context: BridgeContext | undefined, bridgeInstance: Bridge, prismaClient: PrismaClient) => {
     const event = request.getData();
+    const eventId = event.event_id;
     
     // Auto-accept invites
     if (event.type === "m.room.member" && event.state_key === bridgeInstance.getBot().getUserId() && event.content.membership === "invite") {
@@ -37,21 +62,23 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
         return;
     }
 
+    // Ignore encrypted events pushed via AS (The decrypter sidecar will catch them decrypted)
+    if (event.type === "m.room.encrypted") return;
+
     if (event.type !== "m.room.message" || !event.content || event.content.body === undefined) return;
     
     const body = event.content.body as string; 
     const sender = event.sender;
     const roomId = event.room_id;
-    const eventId = event.event_id;
+
+    // Loop prevention: Ignore the bot, the decrypter sidecar, and ghosts
+    const botUserId = bridgeInstance.getBot().getUserId();
+    if (sender === botUserId || sender === DECRYPTER_ID || sender.startsWith("@_plural_")) return;
 
     // --- EMPTY MESSAGE REDACTION ---
-    if (body.trim() === "" && !sender.startsWith("@_plural_") && sender !== bridgeInstance.getBot().getUserId()) {
+    if (body.trim() === "") {
         console.log(`[Janitor] Redacting empty message ${eventId} in ${roomId}`);
-        try {
-            await bridgeInstance.getBot().getClient().redactEvent(roomId, eventId, "EmptyBody");
-        } catch (e) {
-            console.error("[Janitor] Failed to redact empty message:", e);
-        }
+        await safeRedact(bridgeInstance, roomId, eventId, "EmptyBody");
         return;
     }
 
@@ -101,9 +128,8 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
         }
     }
     
-    // --- JANITOR LOGIC (Backup for non-blocking path) ---
+    // --- JANITOR LOGIC ---
     const system = await proxyCache.getSystemRules(sender, prismaClient);
-
     if (!system) return;
 
     for (const member of system.members) {
@@ -113,12 +139,8 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                 const cleanContent = body.slice(tag.prefix.length, body.length - (tag.suffix?.length || 0)).trim();
                 if (!cleanContent) return;
 
-                console.log(`[Janitor-Backup] Proxying for ${member.name} in ${roomId}`);
-
-                try {
-                    const botClient = bridgeInstance.getBot().getClient();
-                    await botClient.redactEvent(roomId, eventId, "PluralProxy-Backup");
-                } catch (e) {}
+                console.log(`[Janitor] Proxying for ${member.name} in ${roomId}`);
+                await safeRedact(bridgeInstance, roomId, eventId, "PluralProxy");
 
                 try {
                     const ghostUserId = `@_plural_${system.slug}_${member.slug}:${DOMAIN}`;
@@ -129,16 +151,18 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                         : (member.displayName || member.name);
 
                     try {
-                        await intent.sendStateEvent(roomId, "m.room.member", ghostUserId, {
-                            membership: "join",
-                            displayname: finalDisplayName,
-                            avatar_url: member.avatarUrl || undefined
-                        });
-                    } catch (joinError) {
                         await intent.join(roomId);
+                    } catch (joinError) {
+                        try {
+                            await bridgeInstance.getIntent().invite(roomId, ghostUserId);
+                            await intent.join(roomId);
+                        } catch (e) {}
+                    }
+
+                    try {
                         await intent.setDisplayName(finalDisplayName);
                         if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
-                    }
+                    } catch (e) {}
 
                     await intent.sendText(roomId, cleanContent);
                 } catch (e) {}
@@ -164,7 +188,7 @@ export const startMatrixBot = async () => {
             }
         },
         controller: {
-            onUserQuery: function (queriedUser) {
+            onUserQuery: function (queriedUser: any) {
                 return {}; // Auto-create users
             },
             onEvent: async function (request: Request<WeakEvent>, context?: BridgeContext) {
@@ -175,6 +199,9 @@ export const startMatrixBot = async () => {
 
     console.log("Starting Matrix Bridge...");
     await bridge.run(8008); 
+
+    // 3. Start Decrypter Sidecar
+    await decrypterService.start();
 };
 
 export const getBridge = () => bridge;
