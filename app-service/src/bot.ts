@@ -200,28 +200,42 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
             } else {
                 const botClient = bridgeInstance.getBot().getClient();
                 const scrollback = await getRoomMessages(botClient, roomId, 50);
-                // Find the LATEST top-level event from this system (skipping edits)
+                // Find the LATEST top-level event (not an edit) from this system
                 targetEvent = scrollback.chunk.find((e: any) => 
                     e.type === "m.room.message" && 
                     e.sender.startsWith(`@_plural_${system.slug}_`) &&
                     e.content?.["m.relates_to"]?.rel_type !== "m.replace"
                 );
+
+                if (targetEvent) {
+                    targetEvent.original_event_id = targetEvent.event_id;
+                    // Now find the latest edit of THIS specific event in the scrollback
+                    const latestEdit = scrollback.chunk.find((e: any) => 
+                        e.type === "m.room.message" &&
+                        e.content?.["m.relates_to"]?.rel_type === "m.replace" &&
+                        e.content?.["m.relates_to"]?.event_id === targetEvent.event_id
+                    );
+                    targetEvent.latestText = latestEdit?.content?.["m.new_content"]?.body || targetEvent.content?.body;
+                }
             }
 
             if (targetEvent) {
-                // To get the latest text, we check for m.new_content
+                // Handle resolution for both search and reply-to cases
                 const content = targetEvent.content || {};
-                targetEvent.latestText = content["m.new_content"]?.body || content.body;
-
-                // If the found event is an edit itself, we must find the original event ID.
-                // Matrix edits have m.relates_to.rel_type = m.replace
-                const relatesTo = content["m.relates_to"];
                 
-                if (relatesTo?.rel_type === "m.replace" && relatesTo?.event_id) {
-                    console.log(`[Edit] Target is an edit of ${relatesTo.event_id}. Redirecting to original.`);
-                    targetEvent.original_event_id = relatesTo.event_id;
-                } else {
-                    targetEvent.original_event_id = targetEvent.event_id;
+                // If we haven't already resolved latestText via the search above, do it now (for replies)
+                if (!targetEvent.latestText) {
+                    targetEvent.latestText = content["m.new_content"]?.body || content.body;
+                }
+
+                // If we haven't already resolved original_event_id, do it now
+                if (!targetEvent.original_event_id) {
+                    const relatesTo = content["m.relates_to"];
+                    if (relatesTo?.rel_type === "m.replace" && relatesTo?.event_id) {
+                        targetEvent.original_event_id = relatesTo.event_id;
+                    } else {
+                        targetEvent.original_event_id = targetEvent.event_id;
+                    }
                 }
             }
 
@@ -279,28 +293,42 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
             } else {
                 const botClient = bridgeInstance.getBot().getClient();
                 const scrollback = await getRoomMessages(botClient, roomId, 50);
-                // Find the LATEST top-level event from this system (skipping edits)
+                // Find the LATEST top-level event (not an edit) from this system
                 targetEvent = scrollback.chunk.find((e: any) => 
                     e.type === "m.room.message" && 
                     e.sender.startsWith(`@_plural_${system.slug}_`) &&
                     e.content?.["m.relates_to"]?.rel_type !== "m.replace"
                 );
+
+                if (targetEvent) {
+                    targetEvent.original_event_id = targetEvent.event_id;
+                    // Now find the latest edit of THIS specific event in the scrollback
+                    const latestEdit = scrollback.chunk.find((e: any) => 
+                        e.type === "m.room.message" &&
+                        e.content?.["m.relates_to"]?.rel_type === "m.replace" &&
+                        e.content?.["m.relates_to"]?.event_id === targetEvent.event_id
+                    );
+                    targetEvent.latestText = latestEdit?.content?.["m.new_content"]?.body || targetEvent.content?.body;
+                }
             }
 
             if (targetEvent) {
-                // To get the latest text, we check for m.new_content
+                // Handle resolution for both search and reply-to cases
                 const content = targetEvent.content || {};
-                targetEvent.latestText = content["m.new_content"]?.body || content.body;
-
-                // If the found event is an edit itself, we must find the original event ID.
-                // Matrix edits have m.relates_to.rel_type = m.replace
-                const relatesTo = content["m.relates_to"];
                 
-                if (relatesTo?.rel_type === "m.replace" && relatesTo?.event_id) {
-                    console.log(`[Edit] Target is an edit of ${relatesTo.event_id}. Redirecting to original.`);
-                    targetEvent.original_event_id = relatesTo.event_id;
-                } else {
-                    targetEvent.original_event_id = targetEvent.event_id;
+                // If we haven't already resolved latestText via the search above, do it now (for replies)
+                if (!targetEvent.latestText) {
+                    targetEvent.latestText = content["m.new_content"]?.body || content.body;
+                }
+
+                // If we haven't already resolved original_event_id, do it now
+                if (!targetEvent.original_event_id) {
+                    const relatesTo = content["m.relates_to"];
+                    if (relatesTo?.rel_type === "m.replace" && relatesTo?.event_id) {
+                        targetEvent.original_event_id = relatesTo.event_id;
+                    } else {
+                        targetEvent.original_event_id = targetEvent.event_id;
+                    }
                 }
             }
 
