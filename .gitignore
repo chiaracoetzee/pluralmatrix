@@ -26,6 +26,7 @@ synapse/config/media_store/
 # OS files
 .DS_Store
 Thumbs.db
+\#*#
 
 # Docker
 .dockercache

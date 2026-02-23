@@ -27,57 +27,29 @@ A high-performance Matrix Application Service for Plurality, featuring **"Zero-F
 
 ## Setup & Installation
 
-### 1. Generate Secure Tokens
-You will need several unique random strings for security. You can generate them using this command (run it multiple times to get different values):
+### 1. Run the Setup Wizard
+The easiest way to get started is using the automated setup script. It will generate all secure tokens and configure your `.env`, `homeserver.yaml`, and app-service registration files automatically.
+
 ```bash
-openssl rand -hex 32
+./setup.sh
 ```
 
-### 2. Configure Files
-Follow this mapping carefully to ensure all services can communicate. **Warning:** If these don't match, Synapse or the App Service will fail to start.
-
-#### Secret Mapping Table
-
-| Token Purpose | Value Needed In... |
-| :--- | :--- |
-| **App Service Identity** | `synapse/config/app-service-registration.yaml` (`as_token`) **AND** `.env` (`AS_TOKEN`) **AND** `synapse/config/homeserver.yaml` (`modules -> config -> as_token`) |
-| **Homeserver Identity** | `synapse/config/app-service-registration.yaml` (`hs_token`) |
-| **User Registration** | `synapse/config/homeserver.yaml` (`registration_shared_secret`) |
-| **Dashboard Security** | `.env` (`JWT_SECRET`) |
-| **Internal Synapse Secrets** | `synapse/config/homeserver.yaml` (`macaroon_secret_key`, `form_secret`) |
-
-#### Step-by-Step Configuration
-
-1.  **Environment Variables**: 
-    `cp .env.example .env` 
-    *   Fill in `AS_TOKEN` and `JWT_SECRET` with fresh random hex strings.
-    *   Set a secure `POSTGRES_PASSWORD`.
-2.  **Synapse Config**: 
-    `cp synapse/config/homeserver.yaml.example synapse/config/homeserver.yaml`
-    *   Replace all `"REPLACE_ME"` tokens with unique random hex strings.
-    *   Ensure the `as_token` under `modules -> config` matches the `AS_TOKEN` in your `.env`.
-3.  **App Service Registration**: 
-    `cp synapse/config/app-service-registration.yaml.example synapse/config/app-service-registration.yaml`
-    *   `id`: Choose a unique string (e.g., `pluralmatrix`).
-    *   `as_token`: **Must match** the one in `.env` and `homeserver.yaml`.
-    *   `hs_token`: Use a fresh random hex string.
-4.  **Signing Key**:
-    Synapse requires a signing key. Generate it using the Docker image:
-    ```bash
-    sudo docker run -it --rm -v $(pwd)/synapse/config:/data matrixdotorg/synapse:latest generate
-    ```
-
-### 3. Launch the Stack
-Use the helper script to build and launch everything:
+### 2. Launch the Stack
+Once the setup is complete, use the helper script to build and launch the 5 core services (Synapse, Postgres, App Service, Pantalaimon, and the Gatekeeper):
 ```bash
 ./restart-stack.sh
 ```
 
-### 4. Register the Decrypter User
+### 3. Register the Decrypter User
 The decrypter ghost needs a standard user account to log into Pantalaimon:
 ```bash
 sudo docker exec plural-synapse register_new_matrix_user -c /data/homeserver.yaml -u plural_decrypter -p decrypter_password --admin http://localhost:8008
 ```
+
+### 4. Port Reference
+*   **9000:** App Service Brain (Dashboard API)
+*   **8008:** Matrix Client API (Direct Synapse)
+*   **8010:** Decrypter Sidecar Proxy (Pantalaimon)
 
 ## Usage
 
@@ -93,6 +65,7 @@ Simply send a message with your configured member tags (e.g., `[Name] Message`).
 ## Development & Testing
 
 ### Running Tests
+Standard unit and E2E tests can be run via npm:
 ```bash
 cd app-service && npm test
 ```
@@ -102,4 +75,6 @@ The suite includes full E2E roundtrips for both **plaintext** and **encrypted** 
 * **Logs:** `sudo docker logs -f plural-app-service`
 * **Synapse Logs:** `sudo docker logs -f plural-synapse`
 * **Pantalaimon Logs:** `sudo docker logs -f plural-pantalaimon`
+* **Restart:** `./restart-stack.sh`
+* **Stop (Safe):** `./stop-stack.sh`
 * **Permission Issues:** If Synapse fails to write config, run: `sudo chown -R 991:991 synapse/config`

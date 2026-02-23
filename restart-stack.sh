@@ -1,24 +1,24 @@
 #!/bin/bash
 
-# PluralMatrix Restart Helper Script
-# This script handles the manual rebuild and restart of the stack
-# due to Docker Compose 'ContainerConfig' bugs.
+# PluralMatrix Restart Helper Script 🚀
+# This script handles the manual rebuild and restart of the stack.
 
+PROJECT_NAME="pluralmatrix" # Updated by setup.sh
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
 
-echo "🚀 Starting PluralMatrix Stack Refresh..."
+echo "🚀 Starting $PROJECT_NAME Stack Refresh..."
 
 # 0. Ensure Network exists
-sudo docker network create pluralmatrix_plural-net 2>/dev/null || true
+sudo docker network create ${PROJECT_NAME}_plural-net 2>/dev/null || true
 
 # 1. Ensure Postgres is running
 if ! sudo docker ps -a | grep -q " postgres$"; then
   echo "🐘 Starting fresh Postgres container..."
   sudo docker run -d \
     --name postgres \
-    --network pluralmatrix_plural-net \
-    -v pluralmatrix_postgres_data:/var/lib/postgresql/data \
+    --network ${PROJECT_NAME}_plural-net \
+    -v ${PROJECT_NAME}_postgres_data:/var/lib/postgresql/data \
     --env-file ./.env \
     -e POSTGRES_DB=plural_db \
     -e POSTGRES_USER=synapse \
@@ -30,11 +30,10 @@ fi
 # 2. Ensure Synapse is running
 if ! sudo docker ps -a | grep -q " plural-synapse$"; then
   echo "🌌 Starting fresh Synapse container..."
-  # Fix permissions just in case
   sudo chown -R 991:991 synapse/config 2>/dev/null || true
   sudo docker run -d \
     --name plural-synapse \
-    --network pluralmatrix_plural-net \
+    --network ${PROJECT_NAME}_plural-net \
     -v "$(pwd)/synapse/config:/data" \
     -v "$(pwd)/synapse/modules:/modules" \
     --env-file ./.env \
@@ -52,16 +51,16 @@ echo "🛡️ Refreshing Pantalaimon container..."
 sudo docker rm -f plural-pantalaimon 2>/dev/null || true
 sudo docker run -d \
   --name plural-pantalaimon \
-  --network pluralmatrix_plural-net \
+  --network ${PROJECT_NAME}_plural-net \
   -p 8010:8010 \
   -v "$(pwd)/pantalaimon/pantalaimon.conf:/pantalaimon.conf" \
-  -v pluralmatrix_pantalaimon_data:/data \
+  -v ${PROJECT_NAME}_pantalaimon_data:/data \
   matrixdotorg/pantalaimon:latest \
   -c /pantalaimon.conf --data-path /data
 
 # 3. Rebuild the App Service Image
 echo "📦 Rebuilding App Service image..."
-sudo docker build -t pluralmatrix_app-service ./app-service
+sudo docker build -t ${PROJECT_NAME}_app-service ./app-service
 
 # 4. Remove old container
 echo "🗑️ Removing old plural-app-service container..."
@@ -71,12 +70,12 @@ sudo docker rm -f plural-app-service 2>/dev/null || true
 echo "🏃 Starting new plural-app-service container..."
 sudo docker run -d \
   --name plural-app-service \
-  --network pluralmatrix_plural-net \
-  --env-file ../.env \
+  --network ${PROJECT_NAME}_plural-net \
+  --env-file ./.env \
   -v "$(pwd)/synapse/config/app-service-registration.yaml:/data/app-service-registration.yaml" \
   -e SYNAPSE_URL="http://plural-synapse:8008" \
   -p 9000:9000 \
-  pluralmatrix_app-service
+  ${PROJECT_NAME}_app-service
 
 # 6. Check status
 echo "📊 Current Status:"
