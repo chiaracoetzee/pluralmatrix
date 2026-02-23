@@ -57,7 +57,9 @@ sed -i "s/hs_token: .*/hs_token: $HS_TOKEN/" synapse/config/app-service-registra
 
 # 5. Generate Signing Key
 echo "✒️ Generating Synapse signing key..."
-sudo docker run -it --rm -v "$(pwd)/synapse/config:/data" matrixdotorg/synapse:latest generate
+sudo docker run -it --rm -v "$(pwd)/synapse/config:/data" \
+    -e SYNAPSE_SERVER_NAME=$DOMAIN \
+    matrixdotorg/synapse:latest generate
 
 # 6. Finalize project name in scripts
 PROJECT_NAME=$(basename "$(pwd)")
