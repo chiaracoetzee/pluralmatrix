@@ -1,5 +1,5 @@
 import { registerUser, getMatrixClient, getPluralMatrixToken, setupTestRoom } from './test/e2e-helper';
-import { MatrixClient, LogService } from 'matrix-appservice-bridge/node_modules/@vector-im/matrix-bot-sdk';
+import { MatrixClient, LogService } from '@vector-im/matrix-bot-sdk';
 
 // Suppress excessive logs during tests
 LogService.setLogger({

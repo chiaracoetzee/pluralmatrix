@@ -1,5 +1,5 @@
 import { execSync } from 'child_process';
-import { MatrixClient } from 'matrix-appservice-bridge/node_modules/@vector-im/matrix-bot-sdk';
+import { MatrixClient } from '@vector-im/matrix-bot-sdk';
 
 const SYNAPSE_URL = "http://localhost:8008";
 const APP_SERVICE_URL = "http://localhost:9000";

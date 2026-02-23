@@ -1,4 +1,4 @@
-import { MatrixClient, MemoryStorageProvider } from "matrix-appservice-bridge/node_modules/@vector-im/matrix-bot-sdk";
+import { MatrixClient, MemoryStorageProvider } from "@vector-im/matrix-bot-sdk";
 import { getBridge, handleEvent, prisma } from "../bot";
 
 const PANTALAIMON_URL = "http://plural-pantalaimon:8010";
@@ -37,11 +37,11 @@ export class DecrypterService {
             this.client = new MatrixClient(PANTALAIMON_URL, access_token, new MemoryStorageProvider());
             
             // 3. Register Event Listeners
-            this.client.on("room.event", async (roomId, event) => {
+            this.client.on("room.event", async (roomId: string, event: any) => {
                 await this.processDecryptedEvent(roomId, event);
             });
 
-            this.client.on("room.invite", async (roomId, event) => {
+            this.client.on("room.invite", async (roomId: string, event: any) => {
                 console.log(`[Decrypter] Invited to ${roomId}. Joining for E2EE support...`);
                 await this.client?.joinRoom(roomId);
                 this.encryptedRoomCache.delete(roomId);
