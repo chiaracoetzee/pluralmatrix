@@ -190,12 +190,9 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
 
             if (replyTo) {
                 try {
-                    console.log(`[Edit] Resolving reply to: ${replyTo}`);
                     targetEvent = await bridgeInstance.getBot().getClient().getEvent(roomId, replyTo);
-                    if (targetEvent) {
-                         // Ensure event_id is set even if the SDK returns a raw event
-                         if (!targetEvent.event_id) targetEvent.event_id = replyTo;
-                         console.log(`[Edit] Fetched target event: ${targetEvent.event_id}, type: ${targetEvent.type}, sender: ${targetEvent.sender}`);
+                    if (targetEvent && !targetEvent.event_id) {
+                         targetEvent.event_id = replyTo;
                     }
                 } catch (e: any) {
                     console.error(`[Edit] Failed to fetch replied-to event:`, e.message);
@@ -203,10 +200,11 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
             } else {
                 const botClient = bridgeInstance.getBot().getClient();
                 const scrollback = await getRoomMessages(botClient, roomId, 50);
-                // Find the LATEST event from this system (can be an edit)
+                // Find the LATEST top-level event from this system (skipping edits)
                 targetEvent = scrollback.chunk.find((e: any) => 
                     e.type === "m.room.message" && 
-                    e.sender.startsWith(`@_plural_${system.slug}_`)
+                    e.sender.startsWith(`@_plural_${system.slug}_`) &&
+                    e.content?.["m.relates_to"]?.rel_type !== "m.replace"
                 );
             }
 
@@ -232,7 +230,6 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                 return;
             }
 
-            console.log(`[Edit] Target found: ${targetEvent.original_event_id} (Latest: ${targetEvent.event_id}) from ${targetEvent.sender}`);
             const ghostIntent = bridgeInstance.getIntent(targetEvent.sender);
             
             const editPayload = {
@@ -248,7 +245,6 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                 }
             };
 
-            console.log(`[Edit] Sending edit event for ${targetEvent.original_event_id}:`, JSON.stringify(editPayload));
             await ghostIntent.sendEvent(roomId, "m.room.message", editPayload);
             
             await safeRedact(bridgeInstance, roomId, eventId, "PluralCommand");
@@ -273,12 +269,9 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
 
             if (replyTo) {
                 try {
-                    console.log(`[Edit] Resolving reply to: ${replyTo}`);
                     targetEvent = await bridgeInstance.getBot().getClient().getEvent(roomId, replyTo);
-                    if (targetEvent) {
-                         // Ensure event_id is set even if the SDK returns a raw event
-                         if (!targetEvent.event_id) targetEvent.event_id = replyTo;
-                         console.log(`[Edit] Fetched target event: ${targetEvent.event_id}, type: ${targetEvent.type}, sender: ${targetEvent.sender}`);
+                    if (targetEvent && !targetEvent.event_id) {
+                         targetEvent.event_id = replyTo;
                     }
                 } catch (e: any) {
                     console.error(`[Edit] Failed to fetch replied-to event:`, e.message);
@@ -286,10 +279,11 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
             } else {
                 const botClient = bridgeInstance.getBot().getClient();
                 const scrollback = await getRoomMessages(botClient, roomId, 50);
-                // Find the LATEST event from this system (can be an edit)
+                // Find the LATEST top-level event from this system (skipping edits)
                 targetEvent = scrollback.chunk.find((e: any) => 
                     e.type === "m.room.message" && 
-                    e.sender.startsWith(`@_plural_${system.slug}_`)
+                    e.sender.startsWith(`@_plural_${system.slug}_`) &&
+                    e.content?.["m.relates_to"]?.rel_type !== "m.replace"
                 );
             }
 
