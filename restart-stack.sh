@@ -27,6 +27,11 @@ else
   sudo docker start postgres 2>/dev/null || true
 fi
 
+# 1.5 Ensure plural_db exists
+echo "🐘 Ensuring plural_db exists..."
+sudo docker exec postgres psql -U synapse -tc "SELECT 1 FROM pg_database WHERE datname = 'plural_db'" | grep -q 1 || \
+sudo docker exec postgres psql -U synapse -c "CREATE DATABASE plural_db"
+
 # 2. Ensure Synapse is running
 echo "🌌 Refreshing Synapse container..."
 sudo docker rm -f plural-synapse 2>/dev/null || true
