@@ -82,14 +82,26 @@ These commands are designed to work exactly like their PluralKit equivalents for
 
 ## Client Configuration <a name="client-configuration" href="#client-configuration">#</a>
 
-For the best experience and a clean timeline, we recommend these client-specific settings:
+For the best experience and a clean timeline, we recommend these client-specific settings (last tested February 2026).
+
+**Note:** Both message senders and receivers need to configure these settings to see a perfectly clean timeline.
 
 ### Mobile
-- **FluffyChat:** Enable **Settings → Chat → Hide redacted messages**.
+- ⚙️ **Element Classic:** Disable **Settings → Preferences → Show removed messages**.
+- ❌ **Element X:** Not recommended (no option to hide redacted messages).
+- ⚙️ **FluffyChat:** Enable **Settings → Chat → Hide redacted messages**.
+- ✅ **SchildiChat Legacy:** Disable **Settings → Preferences → Timeline → Show removed messages** (off by default).
+- ❌ **SchildiChat Next:** Not recommended (no option to hide redacted messages).
 
 ### Desktop / Web
-- **Element:** Disable **Settings → Preferences → Timeline → Show a placeholder for removed messages**.
-- **Cinny:** Hides deleted messages by default—no configuration needed!
+- ✅ **Cinny:** Ensure **Settings → General → Show Hidden Events** is disabled (off by default).
+- ⚙️ **Element:** Disable **Settings → Preferences → Timeline → Show a placeholder for removed messages**.
+- ⚙️ **FluffyChat:** Enable **Settings → Chat → Hide redacted messages**.
+- ✅ **Fractal:** Hides deleted messages by default—no configuration needed!
+- ⚙️ **NeoChat:** Disable **Settings → General → Show deleted messages**.
+- ❌ **nheko:** Not recommended (no option to hide redacted messages).
+- ✅ **SchildiChat Desktop (deprecated):** Disable **Settings → Preferences → Timeline → Show a placeholder for removed messages** (off by default).
+- ✅ **SchildiChat Revenge:** Disable **Settings → Conversation screen → Show deleted messages** (off by default).
 
 ## Testing <a name="testing" href="#testing">#</a>
 Run the comprehensive test suite to verify full-stack functionality:
