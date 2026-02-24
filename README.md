@@ -12,10 +12,10 @@ PluralMatrix is a Matrix Application Service designed for plural systems using M
 ## Visuals
 
 <div align="center">
-  <img src="docs/screenshots/chat.png" width="600" alt="High-Fidelity Chat Proxying">
+  <img src="assets/images/screenshots/chat.png" width="600" alt="High-Fidelity Chat Proxying">
   <br>
-  <img src="docs/screenshots/dashboard.png" width="400" alt="Dashboard Overview">
-  <img src="docs/screenshots/editor.png" width="400" alt="Member Editor">
+  <img src="assets/images/screenshots/dashboard.png" width="400" alt="Dashboard Overview">
+  <img src="assets/images/screenshots/editor.png" width="400" alt="Member Editor">
 </div>
 
 ## Core Features
@@ -61,7 +61,11 @@ These commands are designed to work exactly like their PluralKit equivalents for
 - A Matrix Homeserver (Synapse required for Zero-Flash support)
 
 ### Quick Start
-1. Clone the repository.
+1. Clone the repository from [GitHub](https://github.com/pluralmatrix/pluralmatrix):
+   ```bash
+   git clone https://github.com/pluralmatrix/pluralmatrix.git
+   cd pluralmatrix
+   ```
 2. Run the setup script:
    ```bash
    ./setup.sh

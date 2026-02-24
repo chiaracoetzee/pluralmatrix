@@ -1,5 +1,8 @@
 # PluralMatrix: Developer Notes 🌌
 
+## Git Mandate
+* **NEVER** commit and push to GitHub without stopping and asking for explicit permission first.
+
 ## Stack Management
 
 Since `docker-compose` can be unreliable in this environment (due to `ContainerConfig` errors), use the helper script to rebuild and restart the services.
