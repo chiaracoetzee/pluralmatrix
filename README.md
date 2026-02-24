@@ -1,91 +1,77 @@
-# PluralMatrix 🌌
+# <img src="lily.png" width="32" height="32" align="center"> PluralMatrix
 
-A high-performance Matrix Application Service for Plurality, featuring **"Zero-Flash"** high-fidelity message proxying and **Hybrid E2EE support**.
+PluralMatrix is a Matrix Application Service designed for plural systems using Matrix, the open-source alternative to Discord. As in PluralKit, message prefixes are used to speak as each system member. But in PluralMatrix, every system member is represented by a unique "ghost" user who automatically joins rooms and sends messages on that member's behalf, providing a more native Matrix experience.
+
+**Note on Compatibility:** While the "Zero-Flash" feature (which instantly hides trigger messages) requires a custom module installed on a Synapse homeserver, all other PluralMatrix features—including E2EE support and the dashboard—are compatible with any standard Matrix server.
 
 ## Core Features
 
-*   **Zero-Flash Proxying:** Intercepts messages in plaintext rooms *before* they are saved to the database via a synchronous Synapse module. No "flicker" of original text.
-*   **Hybrid E2EE Support:** Uses a dedicated **Decrypter Sidecar** via Pantalaimon to handle encrypted rooms. 
-*   **Auto-Invite/Join:** The bot automatically invites the Decrypter Ghost upon detecting encryption; the ghost joins and syncs keys instantly.
-*   **High-Fidelity Data:**
-    *   **Reply Preservation:** Proxied messages correctly maintain relationships to original reply threads (`m.relates_to`).
-    *   **Full Slug Support:** 1:1 roundtrip integrity for member and system slugs (no truncation).
-*   **Performance:**
-    *   **In-Memory Caching:** Fast proxy rule lookups with active invalidation on data changes.
-    *   **Deduplication:** Robust event handling prevents double-processing across bridge and sidecar layers.
-*   **Security:** Enforced Zod schema validation and mandatory secret management (JWT, tokens).
+### High-Fidelity Proxying ("Zero-Flash")
+- **Instant Cleanup:** A custom Synapse module intercepts and drops original proxy trigger messages before they are stored, ensuring a clean timeline without original messages ever appearing.
+- **Rich Presence:** Proxied messages use custom display names, avatars, and system tags.
+- **Relation Preservation:** Full support for replies and other Matrix event relations.
+
+### Hybrid E2EE Support
+- **Transparent Decryption:** A dedicated sidecar service handles end-to-end encrypted rooms via Pantalaimon, allowing the bot to proxy even in secure environments.
+- **Secure by Design:** Automated registration and secure credential management for decryption ghosts.
+
+### Modern Dashboard
+- **Web-based Management:** A React-based UI for managing system members, settings, and avatars.
+- **Matrix Authentication:** Sign in directly using your Matrix credentials.
+- **Live Sync:** Real-time updates to ghost profiles and proxy rules.
+
+### Data Portability (PluralKit Compatible)
+- **Easy Migration:** Import your system directly from a PluralKit JSON export.
+- **Full Exports:** Export your system data and avatar assets (ZIP) for backup or migration.
+- **Roundtrip Fidelity:** Maintains IDs and slugs for consistent cross-platform use.
+
+### Advanced Bot Commands
+These commands are designed to work exactly like their PluralKit equivalents for familiarity and ease of use.
+
+- `pk;list`: View all system members.
+- `pk;member <slug>`: View detailed information about a member.
+- `pk;e <text>`: Edit your last proxied message or a specific replied-to message.
+- `pk;rp <slug>`: Change the identity of a previously proxied message (Reproxy).
+- `pk;message -delete`: Remove a proxied message.
+- **Emoji Reactions:** React with ❌ to any proxied message to delete it instantly.
+
+### Smart System Management
+- **Automatic Slugs:** Generates clean, unique IDs for members from names or descriptions.
+- **Ghost Decommissioning:** Automatically cleans up ghost users and their room memberships when a member is deleted.
+- **Profile Syncing:** Ensures global Matrix profiles stay in sync with your system dashboard.
 
 ## Visuals
 
-### High-Fidelity Proxying
-Seamless, "Zero-Flash" proxying in action within the Cinny Matrix client.
-![Chat](docs/screenshots/chat.png)
+<div align="center">
+  <img src="docs/screenshots/dashboard.png" width="400" alt="Dashboard Overview">
+  <img src="docs/screenshots/editor.png" width="400" alt="Member Editor">
+  <br>
+  <img src="docs/screenshots/chat.png" width="600" alt="High-Fidelity Chat Proxying">
+</div>
 
-### PluralMatrix Dashboard
-The central hub for managing your system and members.
-![Dashboard](docs/screenshots/dashboard.png)
+## Installation & Setup
 
-### Member Editor
-Detailed management of member profiles, proxy tags, and custom colors.
-![Editor](docs/screenshots/editor.png)
+### Prerequisites
+- Docker & Docker Compose
+- A Matrix Homeserver (Synapse required for Zero-Flash support)
 
-## Architecture
+### Quick Start
+1. Clone the repository.
+2. Run the setup script:
+   ```bash
+   ./setup.sh
+   ```
+3. Run the restart script to initialize the services:
+   ```bash
+   ./restart-stack.sh
+   ```
+4. Invite `@plural_bot:yourdomain.com` to the rooms you wish to use it in.
+5. Access the dashboard at `http://localhost:9000`.
 
-*   **Synapse (Homeserver):** The core Matrix server (`port 8008`).
-*   **Gatekeeper Module (Python):** Intercepts plaintext events synchronously for "Zero-Flash" cleanup.
-*   **App Service (Node.js):** 
-    *   **Bridge:** Connects directly to Synapse for maximum performance in plaintext rooms.
-    *   **Decrypter Sidecar:** A separate client session connected to **Pantalaimon** (`port 8010`) that specifically observes and decrypts E2EE channels.
-*   **Pantalaimon:** An E2EE-aware reverse proxy that manages keys and decryption for the Sidecar.
-*   **PostgreSQL:** Persistent storage for systems, members, and proxy rules.
+**Note:** By default, PluralMatrix launches its own Synapse demo server for local testing, but it can be easily configured to integrate with any existing Matrix homeserver.
 
-## Setup & Installation
-
-### 1. Run the Setup Wizard
-The easiest way to get started is using the automated setup script. It will generate all secure tokens and configure your `.env`, `homeserver.yaml`, and app-service registration files automatically.
-
-```bash
-./setup.sh
-```
-
-### 2. Launch the Stack
-Once the setup is complete, use the helper script to build and launch the 5 core services (Synapse, Postgres, App Service, Pantalaimon, and the Gatekeeper):
-```bash
-./restart-stack.sh
-```
-
-### 3. Port Reference
-*   **9000:** App Service Brain (Dashboard API)
-*   **8008:** Matrix Client API (Direct Synapse)
-*   **8010:** Decrypter Sidecar Proxy (Pantalaimon)
-
-## Usage
-
-### 1. Invite the Bot
-**IMPORTANT:** You must manually `/invite @plural_bot:localhost` to every room you want it to operate in (both plaintext and encrypted).
-
-### 2. Commands
-*   `pk;list` - List all members in your system.
-*   `pk;member <id>` - Show detailed info for a specific member.
-
-### Proxying
-Simply send a message with your configured member tags (e.g., `[Name] Message`). 
-*   **In Plaintext Rooms:** Proxying is invisible and instant.
-*   **In E2EE Rooms:** Ensure the bot is invited. On the first encrypted message, the bot will invite the Decrypter Ghost. Once the ghost joins and syncs (a few seconds), proxying will begin.
-
-## Development & Testing
-
-### Running Tests
-Standard unit and E2E tests can be run via npm:
+## Testing
+Run the comprehensive test suite to verify full-stack functionality:
 ```bash
 cd app-service && npm test
 ```
-The suite includes full E2E roundtrips for both **plaintext** and **encrypted** rooms.
-
-## Troubleshooting
-* **Logs:** `sudo docker logs -f <PROJECT_NAME>_app-service`
-* **Synapse Logs:** `sudo docker logs -f <PROJECT_NAME>_synapse`
-* **Pantalaimon Logs:** `sudo docker logs -f <PROJECT_NAME>_pantalaimon`
-* **Restart:** `./restart-stack.sh`
-* **Stop (Safe):** `./stop-stack.sh`
-* **Permission Issues:** If Synapse fails to write config, run: `sudo chown -R 991:991 synapse/config`

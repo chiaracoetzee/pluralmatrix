@@ -94,7 +94,7 @@ const DashboardPage: React.FC = () => {
             <header className="sticky top-0 z-40 bg-matrix-dark/80 backdrop-blur-md border-b border-white/5">
                 <div className="max-w-7xl mx-auto px-4 h-20 flex items-center justify-between">
                     <div className="flex items-center space-x-4">
-                        <div className="w-10 h-10 rounded-xl bg-matrix-primary flex items-center justify-center font-bold text-xl">P</div>
+                        <img src="/lily.png" alt="PluralMatrix Logo" className="w-10 h-10 rounded-xl object-cover shadow-lg" />
                         <div>
                             <h1 className="font-bold text-xl leading-tight">PluralMatrix</h1>
                             <p className="text-matrix-muted text-xs font-medium">{user?.mxid}</p>

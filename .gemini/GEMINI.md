@@ -28,7 +28,7 @@ cd app-service && npm test > test_output.log 2>&1; cat test_output.log
 ```
 
 ## Troubleshooting
-* **Logs:** `sudo docker logs -f plural-app-service`
-* **Synapse Logs:** `sudo docker logs -f plural-synapse`
+* **Logs:** `sleep 5 && sudo docker logs pluralmatrix-app-service --tail 50` (Never use -f!)
+* **Synapse Logs:** `sudo docker logs pluralmatrix-synapse --tail 50`
 * **Permission Issues:** If Synapse crashes on boot, run:
   `sudo chown -R 991:991 synapse/config`
