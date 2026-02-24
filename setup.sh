@@ -11,9 +11,18 @@ gen_token() {
 # 0. Initialise project name (Replace underscores with dashes for Synapse hostname compatibility)
 DIR_NAME=$(basename "$(pwd)" | tr '_' '-')
 # Fallback to 'pluralmatrix' if we are in a root-like folder
-PROJECT_NAME=${DIR_NAME:-pluralmatrix}
+DEFAULT_PROJECT_NAME=${DIR_NAME:-pluralmatrix}
 
-echo "🌌 Welcome to the PluralMatrix Setup Wizard ($PROJECT_NAME)!"
+echo "🌌 Welcome to the PluralMatrix Setup Wizard!"
+echo "Note: Side-by-side installations are supported by using unique project names."
+echo ""
+
+read -p "Enter your Project Name [$DEFAULT_PROJECT_NAME]: " PROJECT_NAME
+PROJECT_NAME=${PROJECT_NAME:-$DEFAULT_PROJECT_NAME}
+# Clean project name for Docker/hostname compatibility (lowercase, no underscores)
+PROJECT_NAME=$(echo "$PROJECT_NAME" | tr '_' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+
+echo "🏷️ Project name set to: $PROJECT_NAME"
 echo "This script will generate secure tokens and configure your environment."
 echo ""
 
