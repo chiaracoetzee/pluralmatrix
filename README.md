@@ -9,7 +9,7 @@ PluralMatrix is a Matrix Application Service designed for plural systems using M
 
 **Note on Compatibility:** While the "Zero-Flash" feature (which instantly hides trigger messages) requires a custom module installed on a Synapse homeserver, all other PluralMatrix features—including E2EE support and the dashboard—are compatible with any standard Matrix server.
 
-## Visuals
+## Visuals <a name="visuals" href="#visuals">#</a>
 
 <div align="center">
   <img src="assets/images/screenshots/chat.png" width="100%" alt="High-Fidelity Chat Proxying">
@@ -19,7 +19,7 @@ PluralMatrix is a Matrix Application Service designed for plural systems using M
   <img src="assets/images/screenshots/editor.png" width="60%" alt="Member Editor">
 </div>
 
-## Core Features
+## Core Features <a name="core-features" href="#core-features">#</a>
 
 ### High-Fidelity Proxying ("Zero-Flash")
 - **Instant Cleanup:** A custom Synapse module intercepts and drops original proxy trigger messages before they are stored, ensuring a clean timeline without original messages ever appearing.
@@ -55,7 +55,7 @@ These commands are designed to work exactly like their PluralKit equivalents for
 - **Ghost Decommissioning:** Automatically cleans up ghost users and their room memberships when a member is deleted.
 - **Profile Syncing:** Ensures global Matrix profiles stay in sync with your system dashboard.
 
-## Installation & Setup
+## Installation & Setup <a name="installation-setup" href="#installation-setup">#</a>
 
 ### Prerequisites
 - Docker & Docker Compose
@@ -80,7 +80,18 @@ These commands are designed to work exactly like their PluralKit equivalents for
 
 **Note:** By default, PluralMatrix launches its own Synapse demo server for local testing, but it can be easily configured to integrate with any existing Matrix homeserver.
 
-## Testing
+## Client Configuration <a name="client-configuration" href="#client-configuration">#</a>
+
+For the best experience and a clean timeline, we recommend these client-specific settings:
+
+### Mobile
+- **FluffyChat:** Enable **Settings → Chat → Hide redacted messages**.
+
+### Desktop / Web
+- **Element:** Disable **Settings → Preferences → Timeline → Show a placeholder for removed messages**.
+- **Cinny:** Hides deleted messages by default—no configuration needed!
+
+## Testing <a name="testing" href="#testing">#</a>
 Run the comprehensive test suite to verify full-stack functionality:
 ```bash
 cd app-service && npm test
