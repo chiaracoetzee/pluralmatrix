@@ -144,11 +144,37 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
 
     if (event.type !== "m.room.message" || !event.content || event.content.body === undefined) return;
     
-    const body = event.content.body as string; 
+    let body = event.content.body as string; 
+    let isEdit = false;
+    let originalEventId = eventId;
+
+    const content = event.content as any;
+    if (content["m.new_content"] && content["m.relates_to"]?.rel_type === "m.replace") {
+        body = content["m.new_content"].body;
+        isEdit = true;
+        originalEventId = content["m.relates_to"].event_id;
+    }
 
     // Loop prevention: Ignore the bot, the decrypter sidecar, and ghosts
     const botUserId = bridgeInstance.getBot().getUserId();
     if (sender === botUserId || sender === DECRYPTER_ID || sender.startsWith("@_plural_")) return;
+
+    // For edits, check if the original message was already proxied/redacted BY US
+    if (isEdit) {
+        try {
+            const originalEvent = await bridgeInstance.getBot().getClient().getEvent(roomId, originalEventId);
+            const redactedBy = originalEvent?.unsigned?.redacted_by;
+            if (redactedBy) {
+                // If it was redacted by the bot or a ghost, we've already proxied it
+                if (redactedBy === botUserId || redactedBy.startsWith("@_plural_")) {
+                    return;
+                }
+            }
+        } catch (e) {
+            // If the original event is missing or inaccessible, it might have been caught by the Zero-Flash module.
+            // In Zero-Flash cases, we still want to proceed with proxying the edit.
+        }
+    }
 
     // --- EMPTY MESSAGE REDACTION ---
     if (body.trim() === "") {
@@ -450,6 +476,9 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
 
                 console.log(`[Janitor] Proxying for ${member.name} in ${roomId}`);
                 await safeRedact(bridgeInstance, roomId, eventId, "PluralProxy");
+                if (isEdit && originalEventId !== eventId) {
+                    await safeRedact(bridgeInstance, roomId, originalEventId, "PluralProxyOriginal");
+                }
 
                 try {
                     const ghostUserId = `@_plural_${system.slug}_${member.slug}:${DOMAIN}`;
@@ -480,7 +509,17 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                     };
 
                     if (event.content["m.relates_to"]) {
-                        content["m.relates_to"] = event.content["m.relates_to"];
+                        const relatesTo = { ...event.content["m.relates_to"] } as any;
+                        // If this was an edit, we don't want the ghost to "edit" the user's message
+                        // (which it can't do anyway). We want it to be a new message.
+                        if (relatesTo.rel_type === "m.replace") {
+                            delete relatesTo.rel_type;
+                            delete relatesTo.event_id;
+                        }
+                        
+                        if (Object.keys(relatesTo).length > 0) {
+                            content["m.relates_to"] = relatesTo;
+                        }
                     }
 
                     await intent.sendEvent(roomId, "m.room.message", content);
