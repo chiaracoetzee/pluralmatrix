@@ -3,7 +3,8 @@ LogLevel = Debug
 SSL = False
 
 [plural_decrypter]
-Homeserver = http://plural-synapse:8008
+# Use your PROJECT_NAME-synapse here (default: pluralmatrix-synapse)
+Homeserver = http://pluralmatrix-synapse:8008
 ListenAddress = 0.0.0.0
 ListenPort = 8010
 User = @plural_decrypter:localhost

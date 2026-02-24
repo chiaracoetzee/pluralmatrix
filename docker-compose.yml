@@ -3,6 +3,7 @@ version: "3.7"
 services:
   postgres:
     image: postgres:15
+    container_name: ${PROJECT_NAME:-pluralmatrix}-postgres
     environment:
       POSTGRES_USER: synapse
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-synapse_password}
@@ -15,7 +16,7 @@ services:
 
   synapse:
     image: matrixdotorg/synapse:latest
-    container_name: plural-synapse
+    container_name: ${PROJECT_NAME:-pluralmatrix}-synapse
     restart: unless-stopped
     environment:
       - SYNAPSE_SERVER_NAME=${SYNAPSE_SERVER_NAME:-localhost}
@@ -34,7 +35,7 @@ services:
 
   pantalaimon:
     image: matrixdotorg/pantalaimon:latest
-    container_name: plural-pantalaimon
+    container_name: ${PROJECT_NAME:-pluralmatrix}-pantalaimon
     ports:
       - "8010:8010"
     volumes:
@@ -46,11 +47,12 @@ services:
 
   app-service:
     build: ./app-service
-    container_name: plural-app-service
+    container_name: ${PROJECT_NAME:-pluralmatrix}-app-service
     restart: unless-stopped
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://synapse:synapse_password@postgres:5432/plural_db}
-      - SYNAPSE_URL=http://synapse:8008
+      - PROJECT_NAME=${PROJECT_NAME:-pluralmatrix}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://synapse:synapse_password@${PROJECT_NAME:-pluralmatrix}-postgres:5432/plural_db}
+      - SYNAPSE_URL=http://${PROJECT_NAME:-pluralmatrix}-synapse:8008
       - APP_PORT=${APP_PORT:-9000}
     volumes:
       - ./synapse/config/app-service-registration.yaml:/data/app-service-registration.yaml

@@ -415,7 +415,8 @@ export const exportAvatarsZip = async (mxid: string, stream: NodeJS.WritableStre
     const bridge = getBridge();
     if (!bridge) throw new Error("Bridge not initialized");
 
-    const homeserverUrl = process.env.SYNAPSE_URL || "http://plural-synapse:8008";
+    const PROJECT_NAME = process.env.PROJECT_NAME || "pluralmatrix";
+    const homeserverUrl = process.env.SYNAPSE_URL || `http://${PROJECT_NAME}-synapse:8008`;
     const asToken = process.env.AS_TOKEN;
 
     if (!asToken) throw new Error("AS_TOKEN is not configured!");

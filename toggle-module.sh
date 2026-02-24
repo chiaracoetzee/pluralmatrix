@@ -22,8 +22,15 @@ else
     sudo sed -i 's/^      #as_token:/      as_token:/' "$CONFIG_FILE"
 fi
 
+# Load configuration from .env
+if [ -f .env ]; then
+  export $(grep -v '^#' .env | xargs)
+fi
+
+PROJECT_NAME=${PROJECT_NAME:-pluralmatrix}
+
 echo "🔄 Restarting Synapse..."
-sudo docker restart plural-synapse
+sudo docker restart ${PROJECT_NAME}-synapse
 
 echo "📊 Current Status:"
 if grep -q "^modules:" "$CONFIG_FILE"; then

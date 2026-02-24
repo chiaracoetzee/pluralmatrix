@@ -2,7 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET;
-const HOMESERVER_URL = process.env.SYNAPSE_URL || 'http://plural-synapse:8008';
+const PROJECT_NAME = process.env.PROJECT_NAME || 'pluralmatrix';
+const HOMESERVER_URL = process.env.SYNAPSE_URL || `http://${PROJECT_NAME}-synapse:8008`;
 
 export interface AuthRequest extends Request {
     user?: {

@@ -1,7 +1,8 @@
 import { MatrixClient, MemoryStorageProvider } from "@vector-im/matrix-bot-sdk";
 import { getBridge, handleEvent, prisma } from "../bot";
 
-const PANTALAIMON_URL = process.env.PANTALAIMON_URL || "http://plural-pantalaimon:8010";
+const PROJECT_NAME = process.env.PROJECT_NAME || "pluralmatrix";
+const PANTALAIMON_URL = process.env.PANTALAIMON_URL || `http://${PROJECT_NAME}-pantalaimon:8010`;
 const DECRYPTER_USER = "plural_decrypter";
 const DECRYPTER_PASS = process.env.DECRYPTER_PASSWORD || "decrypter_password";
 

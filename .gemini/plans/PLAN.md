@@ -65,7 +65,7 @@ pluralmatrix/
 ├── synapse/
 │   ├── config/
 │   │   ├── homeserver.yaml
-│   │   └── plural-registration.yaml
+│   │   └── app-service-registration.yaml
 │   └── modules/
 │       └── plural_gatekeeper.py  <-- The Python Module
 └── app-service/

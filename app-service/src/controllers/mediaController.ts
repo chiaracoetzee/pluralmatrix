@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import { MediaUploadSchema } from '../schemas/media';
 
-const HOMESERVER_URL = process.env.SYNAPSE_URL || "http://plural-synapse:8008";
+const PROJECT_NAME = process.env.PROJECT_NAME || "pluralmatrix";
+const HOMESERVER_URL = process.env.SYNAPSE_URL || `http://${PROJECT_NAME}-synapse:8008`;
 const AS_TOKEN = process.env.AS_TOKEN;
 
 export const uploadMedia = async (req: Request, res: Response) => {

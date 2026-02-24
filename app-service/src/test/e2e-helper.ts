@@ -6,8 +6,9 @@ const APP_SERVICE_URL = "http://localhost:9000";
 
 export const registerUser = (username: string, password: string): string => {
     console.log(`[E2E] Registering user ${username}...`);
+    const projectName = process.env.PROJECT_NAME || 'pluralmatrix';
     try {
-        const cmd = `sudo docker exec plural-synapse register_new_matrix_user -c /data/homeserver.yaml -u ${username} -p ${password} --admin http://localhost:8008`;
+        const cmd = `sudo docker exec ${projectName}-synapse register_new_matrix_user -c /data/homeserver.yaml -u ${username} -p ${password} --admin http://localhost:8008`;
         execSync(cmd, { stdio: 'pipe' });
         console.log(`[E2E] User ${username} registered successfully.`);
         return `@${username}:localhost`;

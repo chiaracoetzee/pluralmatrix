@@ -20,7 +20,7 @@ This will:
 ## Database Seeding
 To reset or seed the test system:
 ```bash
-sudo docker exec -it plural-app-service npx ts-node seed-db.ts
+sudo docker exec -it pluralmatrix-app-service npx ts-node seed-db.ts
 ```
 
 ## Testing
