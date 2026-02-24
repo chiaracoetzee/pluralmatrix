@@ -4,6 +4,15 @@ PluralMatrix is a Matrix Application Service designed for plural systems using M
 
 **Note on Compatibility:** While the "Zero-Flash" feature (which instantly hides trigger messages) requires a custom module installed on a Synapse homeserver, all other PluralMatrix features—including E2EE support and the dashboard—are compatible with any standard Matrix server.
 
+## Visuals
+
+<div align="center">
+  <img src="docs/screenshots/chat.png" width="600" alt="High-Fidelity Chat Proxying">
+  <br>
+  <img src="docs/screenshots/dashboard.png" width="400" alt="Dashboard Overview">
+  <img src="docs/screenshots/editor.png" width="400" alt="Member Editor">
+</div>
+
 ## Core Features
 
 ### High-Fidelity Proxying ("Zero-Flash")
@@ -39,15 +48,6 @@ These commands are designed to work exactly like their PluralKit equivalents for
 - **Automatic Slugs:** Generates clean, unique IDs for members from names or descriptions.
 - **Ghost Decommissioning:** Automatically cleans up ghost users and their room memberships when a member is deleted.
 - **Profile Syncing:** Ensures global Matrix profiles stay in sync with your system dashboard.
-
-## Visuals
-
-<div align="center">
-  <img src="docs/screenshots/dashboard.png" width="400" alt="Dashboard Overview">
-  <img src="docs/screenshots/editor.png" width="400" alt="Member Editor">
-  <br>
-  <img src="docs/screenshots/chat.png" width="600" alt="High-Fidelity Chat Proxying">
-</div>
 
 ## Installation & Setup
 
