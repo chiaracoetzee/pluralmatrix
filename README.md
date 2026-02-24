@@ -12,11 +12,11 @@ PluralMatrix is a Matrix Application Service designed for plural systems using M
 ## Visuals
 
 <div align="center">
-  <img src="assets/images/screenshots/chat.png" width="800" alt="High-Fidelity Chat Proxying">
+  <img src="assets/images/screenshots/chat.png" width="100%" alt="High-Fidelity Chat Proxying">
   <br><br>
-  <img src="assets/images/screenshots/dashboard.png" width="700" alt="Dashboard Overview">
+  <img src="assets/images/screenshots/dashboard.png" width="80%" alt="Dashboard Overview">
   <br><br>
-  <img src="assets/images/screenshots/editor.png" width="700" alt="Member Editor">
+  <img src="assets/images/screenshots/editor.png" width="60%" alt="Member Editor">
 </div>
 
 ## Core Features
