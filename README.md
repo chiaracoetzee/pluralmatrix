@@ -1,4 +1,9 @@
-# <img src="lily.png" width="32" height="32" align="center"> PluralMatrix
+---
+layout: home
+title: Home
+permalink: /
+---
+# <img src="assets/images/lily-header.png" width="32" height="32" align="center"> PluralMatrix
 
 PluralMatrix is a Matrix Application Service designed for plural systems using Matrix, the open-source alternative to Discord. As in PluralKit, message prefixes are used to speak as each system member. But in PluralMatrix, every system member is represented by a unique "ghost" user who automatically joins rooms and sends messages on that member's behalf, providing a more native Matrix experience.
 

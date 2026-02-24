@@ -33,3 +33,7 @@ Thumbs.db
 synapse/modules/plural_gatekeeper.py~
 *:Zone.Identifier
 pantalaimon/pantalaimon.conf
+
+# Jekyll Build Output
+_site/
+

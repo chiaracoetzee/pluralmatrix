@@ -1,0 +1,45 @@
+title: PluralMatrix
+description: PluralKit port for Matrix, using a ghost user for each system member
+url: "https://pluralmatrix.org"
+baseurl: ""
+remote_theme: jekyll/minima
+
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+plugins:
+  - jekyll-remote-theme
+  - jekyll-seo-tag
+  - jekyll-feed
+
+# Minima configuration
+minima:
+  skin: dark
+  social_links:
+    - { platform: github, user: chiaracoetzee }
+
+
+
+# Exclude directories that shouldn't be processed by Jekyll
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor/
+  - .gemini
+  - .gemini/plans
+  - app-service/node_modules
+
+  - app-service/dist
+  - app-service/client/node_modules
+  - synapse
+  - pantalaimon
+  - .gemini
+  - setup.sh
+  - restart-stack.sh
+  - stop-stack.sh
+  - toggle-module.sh
+  - docker-compose.yml
+  - .env.example
+
