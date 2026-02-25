@@ -52,3 +52,10 @@ enable_registration: true
 enable_registration_without_verification: true
 
 # vim:ft=yaml
+
+experimental_features:
+  # This unlocks the /keys/upload/{userId}/{deviceId} endpoint
+  msc3202_device_masquerading: true
+  # These ensure you actually get the to-device keys in your /transactions
+  msc3202_transaction_extensions: true
+  msc2409_to_device_messages_enabled: true

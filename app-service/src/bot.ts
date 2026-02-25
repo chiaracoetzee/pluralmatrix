@@ -1,23 +1,46 @@
-import { AppServiceRegistration, Bridge, Request, WeakEvent, BridgeContext, Intent } from "matrix-appservice-bridge";
+import { AppServiceRegistration, Bridge, Request, WeakEvent, BridgeContext, Intent, AppService } from "matrix-appservice-bridge";
 import { PrismaClient } from "@prisma/client";
 import * as yaml from "js-yaml";
 import * as fs from "fs";
 import { marked } from "marked";
 import { proxyCache } from "./services/cache";
-import { decrypterService } from "./services/decrypterService";
+import { OlmMachineManager } from "./crypto/OlmMachineManager";
+import { TransactionRouter } from "./crypto/TransactionRouter";
+import { DeviceLists, UserId, RoomId } from "@matrix-org/matrix-sdk-crypto-nodejs";
+import { sendEncryptedEvent } from "./crypto/encryption";
+import { processCryptoRequests, registerDevice } from "./crypto/crypto-utils";
 
 // Initialize Prisma
 export const prisma = new PrismaClient();
+// Initialize Crypto Manager
+export const cryptoManager = new OlmMachineManager();
+// Store AS token for crypto requests
+export let asToken: string;
 
-// Helper to send formatted Markdown
+/**
+ * Sets the global Appservice token (Used for testing and initialization)
+ */
+export const setAsToken = (token: string) => {
+    asToken = token;
+};
+
+// Helper to send plain text (Encrypted if needed)
+const sendEncryptedText = async (intent: Intent, roomId: string, text: string) => {
+    return sendEncryptedEvent(intent, roomId, "m.room.message", {
+        msgtype: "m.text",
+        body: text
+    }, cryptoManager, asToken);
+};
+
+// Helper to send formatted Markdown (Encrypted if needed)
 const sendRichText = async (intent: Intent, roomId: string, text: string) => {
     const html = await marked.parse(text, { breaks: true });
-    return intent.sendEvent(roomId, "m.room.message", {
+    return sendEncryptedEvent(intent, roomId, "m.room.message", {
         msgtype: "m.text",
         body: text,
         format: "org.matrix.custom.html",
         formatted_body: html.trim()
-    });
+    }, cryptoManager, asToken);
 };
 
 const getRoomMessages = async (botClient: any, roomId: string, limit: number = 50) => {
@@ -27,32 +50,109 @@ const getRoomMessages = async (botClient: any, roomId: string, limit: number = 5
     });
 };
 
+/**
+ * Robustly finds the latest proxied message for a system in a room.
+ * In encrypted rooms, we target by sender and metadata without requiring decryption.
+ */
+const findLatestGhostMessage = async (bridgeInstance: Bridge, botClient: any, roomId: string, systemSlug: string) => {
+    const scrollback = await getRoomMessages(botClient, roomId, 50);
+    const botUserId = bridgeInstance.getBot().getUserId();
+    const machine = await cryptoManager.getMachine(botUserId);
+    const rustRoomId = new RoomId(roomId);
+
+    let targetRoot: any = null;
+    let latestContent: any = null;
+    const ghostPrefix = `@_plural_${systemSlug}_`;
+
+    // 1. Find the latest ROOT message (skipping replacements)
+    for (const e of scrollback.chunk) {
+        if (e.unsigned?.redacted_by) continue;
+        if (!e.sender.startsWith(ghostPrefix)) continue;
+
+        // Candidate types
+        const isEncrypted = e.type === "m.room.encrypted";
+        const isPlainMessage = e.type === "m.room.message";
+        if (!isEncrypted && !isPlainMessage) continue;
+
+        // Check for replacement metadata (Visible thanks to hoisting)
+        const content = e.content || {};
+        const rel = content["m.relates_to"] || {};
+        const isReplacement = rel.rel_type === "m.replace";
+
+        if (!isReplacement) {
+            targetRoot = e;
+            latestContent = content; // Fallback
+            break;
+        }
+    }
+
+    if (!targetRoot) return null;
+
+    const rootId = targetRoot.event_id || targetRoot.id;
+
+    // 2. Best Effort: Find latest text (requires decryption if encrypted)
+    for (const e of scrollback.chunk) {
+        if (e.unsigned?.redacted_by) continue;
+        if (e.sender !== targetRoot.sender) continue;
+
+        let content = e.content || {};
+        const rel = content["m.relates_to"] || {};
+        
+        // If this is an edit of our root
+        if (rel.rel_type === "m.replace" && (rel.event_id === rootId || rel.id === rootId)) {
+            // Try to decrypt so we have the actual text for pk;rp
+            if (e.type === "m.room.encrypted") {
+                try {
+                    const decrypted = await machine.decryptRoomEvent(JSON.stringify(e), rustRoomId);
+                    if (decrypted.event) {
+                        content = JSON.parse(decrypted.event).content;
+                    }
+                } catch (err) { /* keep encrypted content */ }
+            }
+            latestContent = content;
+            break;
+        }
+    }
+
+    return { 
+        event: targetRoot, 
+        latestContent,
+        originalId: rootId
+    };
+};
+
 // Configuration
 const REGISTRATION_PATH = "/data/app-service-registration.yaml";
 const HOMESERVER_URL = process.env.SYNAPSE_URL || "http://localhost:8008";
 const DOMAIN = process.env.SYNAPSE_SERVER_NAME || process.env.SYNAPSE_DOMAIN || "localhost";
-const DECRYPTER_ID = `@plural_decrypter:${DOMAIN}`;
 
 // Placeholder for the bridge instance
 let bridge: Bridge;
 
 // Track rooms where we've already warned about missing permissions
 const permissionWarnedRooms = new Set<string>();
-// Track rooms where we've already invited the decrypter
-const roomsWithDecrypter = new Set<string>();
 
-const safeRedact = async (bridgeInstance: Bridge, roomId: string, eventId: string, reason: string) => {
+/**
+ * Safely redacts an event, attempting to use the best intent possible.
+ */
+const safeRedact = async (bridgeInstance: Bridge, roomId: string, eventId: string, reason: string, preferredIntent?: Intent) => {
+    const intent = preferredIntent || bridgeInstance.getIntent();
     try {
-        await bridgeInstance.getBot().getClient().redactEvent(roomId, eventId, reason);
+        await (intent as any).matrixClient.redactEvent(roomId, eventId, reason);
     } catch (e: any) {
         if (e.errcode === 'M_FORBIDDEN' || e.httpStatus === 403) {
-            if (!permissionWarnedRooms.has(roomId)) {
-                console.warn(`[Bot] Lacking redaction permissions in ${roomId}. Warning the room...`);
-                await bridgeInstance.getIntent().sendText(roomId, 
-                    "⚠️ I don't have permission to redact (delete) messages in this room. " +
-                    "To enable high-fidelity proxying and 'Zero-Flash' cleanup, please promote me to a Moderator or give me 'Redact events' permissions."
-                );
-                permissionWarnedRooms.add(roomId);
+            try {
+                // Fallback to bot intent if ghost lacked permissions
+                await (bridgeInstance.getIntent() as any).matrixClient.redactEvent(roomId, eventId, reason);
+            } catch (fallbackErr: any) {
+                if ((fallbackErr.errcode === 'M_FORBIDDEN' || fallbackErr.httpStatus === 403) && !permissionWarnedRooms.has(roomId)) {
+                    console.warn(`[Bot] Lacking redaction permissions in ${roomId}.`);
+                    await sendEncryptedText(bridgeInstance.getIntent(), roomId, 
+                        "⚠️ I don't have permission to redact (delete) messages in this room. " +
+                        "To enable high-fidelity proxying and 'Zero-Flash' cleanup, please promote me to Moderator or give me 'Redact events' permissions."
+                    );
+                    permissionWarnedRooms.add(roomId);
+                }
             }
         } else {
             console.error(`[Janitor] Failed to redact message ${eventId}:`, e.message || e);
@@ -60,20 +160,21 @@ const safeRedact = async (bridgeInstance: Bridge, roomId: string, eventId: strin
     }
 };
 
-export const handleEvent = async (request: Request<WeakEvent>, context: BridgeContext | undefined, bridgeInstance: Bridge, prismaClient: PrismaClient) => {
+export const handleEvent = async (request: Request<WeakEvent>, context: BridgeContext | undefined, bridgeInstance: Bridge, prismaClient: PrismaClient, isDecrypted: boolean = false, asTokenArg?: string) => {
+    const currentAsToken = asTokenArg || asToken;
     const event = request.getData();
-    const eventId = event.event_id;
-    const roomId = event.room_id;
+    const eventId = event.event_id!;
+    const roomId = event.room_id!;
     const sender = event.sender;
     
     // Auto-accept invites
     if (event.type === "m.room.member" && event.state_key === bridgeInstance.getBot().getUserId() && event.content.membership === "invite") {
-        console.log(`[Bot] Received invite to ${event.room_id}. Joining...`);
-        await bridgeInstance.getIntent().join(event.room_id);
+        console.log(`[Bot] Received invite to ${roomId}. Joining...`);
+        await bridgeInstance.getIntent().join(roomId);
         return;
     }
 
-    // --- REACTION DELETION (❌) ---
+    // Reaction deletion logic
     if (event.type === "m.reaction") {
         const relatesTo = event.content?.["m.relates_to"] as any;
         if (relatesTo?.rel_type === "m.annotation") {
@@ -84,11 +185,10 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                 if (!system) return;
 
                 try {
-                    const targetEvent = await bridgeInstance.getBot().getClient().getEvent(roomId, targetEventId);
+                    const targetEvent = await (bridgeInstance.getBot().getClient() as any).getEvent(roomId, targetEventId);
                     if (targetEvent && targetEvent.sender.startsWith(`@_plural_${system.slug}_`)) {
                         console.log(`[Janitor] Deleting message ${targetEventId} via reaction from ${sender}`);
-                        await safeRedact(bridgeInstance, roomId, targetEventId, "UserRequest");
-                        // Also redact the reaction itself to keep it clean
+                        await safeRedact(bridgeInstance, roomId, targetEventId, "UserRequest", bridgeInstance.getIntent(targetEvent.sender));
                         await safeRedact(bridgeInstance, roomId, eventId, "Cleanup");
                     }
                 } catch (e: any) {
@@ -99,371 +199,165 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
         return;
     }
 
-    // --- DECRYPTER STATE TRACKING ---
-    // If the decrypter leaves or is kicked, clear it from our "invited" cache
-    if (event.type === "m.room.member" && event.state_key === DECRYPTER_ID) {
-        if (event.content.membership !== "join") {
-            console.log(`[Bot] Decrypter ghost left/was removed from ${event.room_id}. Clearing cache.`);
-            roomsWithDecrypter.delete(event.room_id);
-        } else {
-            roomsWithDecrypter.add(event.room_id);
-        }
-    }
+    // Ignore raw encrypted events pushed via AS (The router handles them locally)
+    if (event.type === "m.room.encrypted" && !isDecrypted) return;
 
-    // Ignore encrypted events pushed via AS (The decrypter sidecar will catch them decrypted)
-    if (event.type === "m.room.encrypted") {
-        if (!roomsWithDecrypter.has(event.room_id)) {
-            try {
-                // Check if already in the room
-                const botClient = bridgeInstance.getBot().getClient();
-                const members = await botClient.getJoinedRoomMembers(event.room_id);
-                if (members.includes(DECRYPTER_ID)) {
-                    roomsWithDecrypter.add(event.room_id);
-                    return;
-                }
-
-                console.log(`[Bot] Encryption detected in ${event.room_id}. Inviting Decrypter Ghost...`);
-                await bridgeInstance.getIntent().invite(event.room_id, DECRYPTER_ID);
-                roomsWithDecrypter.add(event.room_id);
-            } catch (e: any) {
-                // If we fail to get members (e.g. not in room), just try the invite
-                try {
-                    await bridgeInstance.getIntent().invite(event.room_id, DECRYPTER_ID);
-                    roomsWithDecrypter.add(event.room_id);
-                } catch (inviteErr: any) {
-                    if (inviteErr.message?.includes("already in the room")) {
-                        roomsWithDecrypter.add(event.room_id);
-                    } else {
-                        console.warn(`[Bot] Failed to invite decrypter to ${event.room_id}:`, inviteErr.message);
-                    }
-                }
-            }
-        }
-        return;
-    }
-
-    if (event.type !== "m.room.message" || !event.content || event.content.body === undefined) return;
+    if (event.type !== "m.room.message" && !isDecrypted) return;
     
-    let body = event.content.body as string; 
+    const content = event.content as any;
+    if (!content) return;
+
+    let body = content.body as string; 
     let isEdit = false;
     let originalEventId = eventId;
 
-    const content = event.content as any;
     if (content["m.new_content"] && content["m.relates_to"]?.rel_type === "m.replace") {
         body = content["m.new_content"].body;
         isEdit = true;
         originalEventId = content["m.relates_to"].event_id;
     }
 
-    // Loop prevention: Ignore the bot, the decrypter sidecar, and ghosts
-    const botUserId = bridgeInstance.getBot().getUserId();
-    if (sender === botUserId || sender === DECRYPTER_ID || sender.startsWith("@_plural_")) return;
+    if (body === undefined || body === null) return;
 
-    // For edits, check if the original message was already proxied/redacted BY US
+    const botUserId = bridgeInstance.getBot().getUserId();
+    if (sender === botUserId || sender.startsWith("@_plural_")) return;
+
+    // Edit Loop Prevention
     if (isEdit) {
         try {
-            const originalEvent = await bridgeInstance.getBot().getClient().getEvent(roomId, originalEventId);
+            const originalEvent = await (bridgeInstance.getBot().getClient() as any).getEvent(roomId, originalEventId);
             const redactedBy = originalEvent?.unsigned?.redacted_by;
-            if (redactedBy) {
-                // If it was redacted by the bot or a ghost, we've already proxied it
-                if (redactedBy === botUserId || redactedBy.startsWith("@_plural_")) {
-                    return;
-                }
-            }
-        } catch (e) {
-            // If the original event is missing or inaccessible, it might have been caught by the Zero-Flash module.
-            // In Zero-Flash cases, we still want to proceed with proxying the edit.
-        }
+            if (redactedBy === botUserId || redactedBy?.startsWith("@_plural_")) return;
+        } catch (e) { }
     }
 
-    // --- EMPTY MESSAGE REDACTION ---
+    // --- ZERO-FLASH: REDACT EMPTY MESSAGES (MOD-CLEARED) ---
     if (body.trim() === "") {
-        console.log(`[Janitor] Redacting empty message ${eventId} in ${roomId}`);
-        await safeRedact(bridgeInstance, roomId, eventId, "EmptyBody");
+        console.log(`[Janitor] Redacting module-cleared message ${eventId} in ${roomId}`);
+        await safeRedact(bridgeInstance, roomId, eventId, "ZeroFlash");
         return;
     }
 
-    // --- CHAT COMMANDS ---
+    // --- Command handling ---
     if (body.startsWith("pk;")) {
         const parts = body.split(" ");
         const cmd = parts[0].substring(3).toLowerCase();
 
-        // 1. pk;list - List all alters
         if (cmd === "list") {
             const system = await proxyCache.getSystemRules(sender, prismaClient);
             if (!system || system.members.length === 0) {
-                await bridgeInstance.getIntent().sendText(roomId, "You don't have any alters registered yet.");
+                await sendEncryptedText(bridgeInstance.getIntent(), roomId, "You don't have any alters registered yet.");
                 return;
             }
             const sortedMembers = system.members.sort((a, b) => a.slug.localeCompare(b.slug));
             const memberList = sortedMembers.map(m => {
                 const tags = m.proxyTags as any[];
-                const primaryPrefix = tags.find(t => t.prefix)?.prefix || "None";
-                return `* **${m.name}** - \`${primaryPrefix}\` (id: \`${m.slug}\`)`;
+                const tag = tags[0];
+                const display = tag ? `\`${tag.prefix}text${tag.suffix}\`` : "None";
+                return `* **${m.name}** - ${display} (id: \`${m.slug}\`)`;
             }).join("\n");
             await sendRichText(bridgeInstance.getIntent(), roomId, `### ${system.name || "Your System"} Members\n${memberList}`);
             return;
         }
 
-        // 2. pk;member <slug> - Show details
         if (cmd === "member" && parts[1]) {
             const slug = parts[1].toLowerCase();
             const system = await proxyCache.getSystemRules(sender, prismaClient);
             const member = system?.members.find(m => m.slug === slug);
-            
             if (!member) {
-                await bridgeInstance.getIntent().sendText(roomId, `No member found with ID: ${slug}`);
+                await sendEncryptedText(bridgeInstance.getIntent(), roomId, `No member found with ID: ${slug}`);
                 return;
             }
-            
             let info = `## Member Details: ${member.name}\n\n`;
             if (member.pronouns) info += `* **Pronouns:** ${member.pronouns}\n`;
             if (member.color) info += `* **Color:** \`#${member.color}\`\n`;
             if (member.description) info += `\n### Description\n${member.description}\n\n`;
-            
-            const tags = (member.proxyTags as any[]).map(t => `\`${t.prefix}text\``).join(", ");
+            const tags = (member.proxyTags as any[]).map(t => `\`${t.prefix}text${t.suffix}\``).join(", ");
             info += `--- \n* **Proxy Tags:** ${tags || "None"}`;
-
             await sendRichText(bridgeInstance.getIntent(), roomId, info);
             return;
         }
 
-        // 3. pk;edit <text> - Edit last message or replied message
-        if (cmd === "edit" || cmd === "e") {
+        // --- Targeting logic for Edit/Reproxy/Delete ---
+        if (["edit", "e", "reproxy", "rp", "message", "msg", "m"].includes(cmd)) {
             const system = await proxyCache.getSystemRules(sender, prismaClient);
             if (!system) return;
 
-            const newText = parts.slice(1).join(" ");
-            if (!newText) return;
+            let targetId: string | undefined;
+            let targetSender: string | undefined;
+            let targetContent: any;
+            let originalId: string | undefined;
 
-            let targetEvent: any;
-            const relatesTo = event.content["m.relates_to"] as any;
+            const relatesTo = (event.content as any)?.["m.relates_to"];
             const replyTo = relatesTo?.["m.in_reply_to"]?.event_id;
 
             if (replyTo) {
                 try {
-                    targetEvent = await bridgeInstance.getBot().getClient().getEvent(roomId, replyTo);
-                    if (targetEvent && !targetEvent.event_id) {
-                         targetEvent.event_id = replyTo;
+                    const targetEvent = await (bridgeInstance.getBot().getClient() as any).getEvent(roomId, replyTo);
+                    if (targetEvent && targetEvent.sender.startsWith(`@_plural_${system.slug}_`)) {
+                        targetSender = targetEvent.sender;
+                        targetContent = targetEvent.content || {};
+                        targetId = targetEvent.event_id || targetEvent.id || replyTo;
+                        
+                        const rel = targetContent["m.relates_to"];
+                        originalId = (rel?.rel_type === "m.replace") ? (rel.event_id || rel.id) : targetId;
                     }
-                } catch (e: any) {
-                    console.error(`[Edit] Failed to fetch replied-to event:`, e.message);
+                } catch (e) {}
+            } else {
+                const resolution = await findLatestGhostMessage(bridgeInstance, bridgeInstance.getBot().getClient(), roomId, system.slug);
+                if (resolution) {
+                    targetSender = resolution.event.sender;
+                    targetContent = resolution.latestContent;
+                    targetId = resolution.event.event_id || resolution.event.id;
+                    originalId = resolution.originalId;
+                }
+            }
+
+            if (!targetId || !targetSender || !targetContent || !originalId) {
+                if (cmd !== "message" && cmd !== "msg" && cmd !== "m") {
+                    await sendEncryptedText(bridgeInstance.getIntent(), roomId, "Could not find a proxied message to modify.");
+                }
+                return;
+            }
+
+            if (cmd === "edit" || cmd === "e") {
+                const newText = parts.slice(1).join(" ");
+                if (!newText) return;
+                const editPayload = {
+                    msgtype: "m.text", body: ` * ${newText}`,
+                    "m.new_content": { msgtype: "m.text", body: newText },
+                    "m.relates_to": { rel_type: "m.replace", event_id: originalId }
+                };
+                await sendEncryptedEvent(bridgeInstance.getIntent(targetSender), roomId, "m.room.message", editPayload, cryptoManager, currentAsToken);
+            } else if (cmd === "reproxy" || cmd === "rp") {
+                const memberSlug = parts[1]?.toLowerCase();
+                const member = system.members.find(m => m.slug === memberSlug);
+                if (member) {
+                    // Reproxy: Redact old and send new
+                    await safeRedact(bridgeInstance, roomId, originalId, "PluralReproxy", bridgeInstance.getIntent(targetSender));
+                    const latestText = targetContent["m.new_content"]?.body || targetContent.body;
+                    const ghostUserId = `@_plural_${system.slug}_${member.slug}:${DOMAIN}`;
+                    const intent = bridgeInstance.getIntent(ghostUserId);
+                    const finalDisplayName = system.systemTag ? `${member.displayName || member.name} ${system.systemTag}` : (member.displayName || member.name);
+                    await intent.ensureRegistered();
+                    await intent.join(roomId);
+                    await intent.setDisplayName(finalDisplayName);
+                    if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
+                    await sendEncryptedEvent(intent, roomId, "m.room.message", { msgtype: "m.text", body: latestText }, cryptoManager, currentAsToken);
                 }
             } else {
-                const botClient = bridgeInstance.getBot().getClient();
-                const scrollback = await getRoomMessages(botClient, roomId, 50);
-                // Find the LATEST top-level event (not an edit) from this system
-                targetEvent = scrollback.chunk.find((e: any) => 
-                    e.type === "m.room.message" && 
-                    e.sender.startsWith(`@_plural_${system.slug}_`) &&
-                    e.content?.["m.relates_to"]?.rel_type !== "m.replace" &&
-                    !e.unsigned?.redacted_by &&
-                    Object.keys(e.content || {}).length > 0
-                );
-
-                if (targetEvent) {
-                    targetEvent.original_event_id = targetEvent.event_id;
-                    // Now find the latest edit of THIS specific event in the scrollback
-                    const latestEdit = scrollback.chunk.find((e: any) => 
-                        e.type === "m.room.message" &&
-                        e.content?.["m.relates_to"]?.rel_type === "m.replace" &&
-                        e.content?.["m.relates_to"]?.event_id === targetEvent.event_id
-                    );
-                    targetEvent.latestText = latestEdit?.content?.["m.new_content"]?.body || targetEvent.content?.body;
+                const subCmd = parts[1]?.toLowerCase();
+                if (subCmd === "-delete" || subCmd === "-d") {
+                    await safeRedact(bridgeInstance, roomId, originalId, "UserRequest", bridgeInstance.getIntent(targetSender));
                 }
             }
-
-            if (targetEvent) {
-                // Handle resolution for both search and reply-to cases
-                const content = targetEvent.content || {};
-                
-                // If we haven't already resolved latestText via the search above, do it now (for replies)
-                if (!targetEvent.latestText) {
-                    targetEvent.latestText = content["m.new_content"]?.body || content.body;
-                }
-
-                // If we haven't already resolved original_event_id, do it now
-                if (!targetEvent.original_event_id) {
-                    const relatesTo = content["m.relates_to"];
-                    if (relatesTo?.rel_type === "m.replace" && relatesTo?.event_id) {
-                        targetEvent.original_event_id = relatesTo.event_id;
-                    } else {
-                        targetEvent.original_event_id = targetEvent.event_id;
-                    }
-                }
-            }
-
-            if (!targetEvent || !targetEvent.sender.startsWith(`@_plural_${system.slug}_`)) {
-                await bridgeInstance.getIntent().sendText(roomId, "Could not find a proxied message to edit.");
-                return;
-            }
-
-            const ghostIntent = bridgeInstance.getIntent(targetEvent.sender);
-            
-            const editPayload = {
-                msgtype: "m.text",
-                body: ` * ${newText}`,
-                "m.new_content": {
-                    msgtype: "m.text",
-                    body: newText
-                },
-                "m.relates_to": {
-                    rel_type: "m.replace",
-                    event_id: targetEvent.original_event_id
-                }
-            };
-
-            await ghostIntent.sendEvent(roomId, "m.room.message", editPayload);
-            
-            await safeRedact(bridgeInstance, roomId, eventId, "PluralCommand");
-            return;
-        }
-
-        // 4. pk;reproxy <slug> - Change the member of a proxied message
-        if (cmd === "reproxy" || cmd === "rp") {
-            const system = await proxyCache.getSystemRules(sender, prismaClient);
-            if (!system) return;
-
-            const memberSlug = parts[1]?.toLowerCase();
-            const member = system.members.find(m => m.slug === memberSlug);
-            if (!member) {
-                await bridgeInstance.getIntent().sendText(roomId, `No member found with ID: ${memberSlug}`);
-                return;
-            }
-
-            let targetEvent: any;
-            const relatesTo = event.content["m.relates_to"] as any;
-            const replyTo = relatesTo?.["m.in_reply_to"]?.event_id;
-
-            if (replyTo) {
-                try {
-                    targetEvent = await bridgeInstance.getBot().getClient().getEvent(roomId, replyTo);
-                    if (targetEvent && !targetEvent.event_id) {
-                         targetEvent.event_id = replyTo;
-                    }
-                } catch (e: any) {
-                    console.error(`[Edit] Failed to fetch replied-to event:`, e.message);
-                }
-            } else {
-                const botClient = bridgeInstance.getBot().getClient();
-                const scrollback = await getRoomMessages(botClient, roomId, 50);
-                // Find the LATEST top-level event (not an edit) from this system
-                targetEvent = scrollback.chunk.find((e: any) => 
-                    e.type === "m.room.message" && 
-                    e.sender.startsWith(`@_plural_${system.slug}_`) &&
-                    e.content?.["m.relates_to"]?.rel_type !== "m.replace" &&
-                    !e.unsigned?.redacted_by &&
-                    Object.keys(e.content || {}).length > 0
-                );
-
-                if (targetEvent) {
-                    targetEvent.original_event_id = targetEvent.event_id;
-                    // Now find the latest edit of THIS specific event in the scrollback
-                    const latestEdit = scrollback.chunk.find((e: any) => 
-                        e.type === "m.room.message" &&
-                        e.content?.["m.relates_to"]?.rel_type === "m.replace" &&
-                        e.content?.["m.relates_to"]?.event_id === targetEvent.event_id
-                    );
-                    targetEvent.latestText = latestEdit?.content?.["m.new_content"]?.body || targetEvent.content?.body;
-                }
-            }
-
-            if (targetEvent) {
-                // Handle resolution for both search and reply-to cases
-                const content = targetEvent.content || {};
-                
-                // If we haven't already resolved latestText via the search above, do it now (for replies)
-                if (!targetEvent.latestText) {
-                    targetEvent.latestText = content["m.new_content"]?.body || content.body;
-                }
-
-                // If we haven't already resolved original_event_id, do it now
-                if (!targetEvent.original_event_id) {
-                    const relatesTo = content["m.relates_to"];
-                    if (relatesTo?.rel_type === "m.replace" && relatesTo?.event_id) {
-                        targetEvent.original_event_id = relatesTo.event_id;
-                    } else {
-                        targetEvent.original_event_id = targetEvent.event_id;
-                    }
-                }
-            }
-
-            if (!targetEvent || !targetEvent.sender.startsWith(`@_plural_${system.slug}_`)) {
-                await bridgeInstance.getIntent().sendText(roomId, "Could not find a proxied message to reproxy.");
-                return;
-            }
-
-            const oldText = targetEvent.latestText;
-
-            // Delete original message
-            await safeRedact(bridgeInstance, roomId, targetEvent.original_event_id, "PluralReproxy");
-
-            // Send new message from correct ghost
-            const ghostUserId = `@_plural_${system.slug}_${member.slug}:${DOMAIN}`;
-            const intent = bridgeInstance.getIntent(ghostUserId);
-            
-            const finalDisplayName = system.systemTag 
-                ? `${member.displayName || member.name} ${system.systemTag}`
-                : (member.displayName || member.name);
-
-            await intent.ensureRegistered();
-            await intent.join(roomId);
-            await intent.setDisplayName(finalDisplayName);
-            if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
-
-            await intent.sendEvent(roomId, "m.room.message", {
-                msgtype: "m.text",
-                body: oldText
-            });
 
             await safeRedact(bridgeInstance, roomId, eventId, "PluralCommand");
             return;
-        }
-
-        // 5. pk;message -delete | pk;msg -d
-        if (cmd === "message" || cmd === "msg" || cmd === "m") {
-            const subCmd = parts[1]?.toLowerCase();
-            if (subCmd === "-delete" || subCmd === "-d") {
-                const system = await proxyCache.getSystemRules(sender, prismaClient);
-                if (!system) return;
-
-                let targetEvent: any;
-                const relatesTo = event.content["m.relates_to"] as any;
-                const replyTo = relatesTo?.["m.in_reply_to"]?.event_id;
-
-                if (replyTo) {
-                    try {
-                        targetEvent = await bridgeInstance.getBot().getClient().getEvent(roomId, replyTo);
-                        if (targetEvent && !targetEvent.event_id) targetEvent.event_id = replyTo;
-                    } catch (e) {}
-                } else {
-                    const botClient = bridgeInstance.getBot().getClient();
-                    const scrollback = await getRoomMessages(botClient, roomId, 50);
-                    targetEvent = scrollback.chunk.find((e: any) => 
-                        e.type === "m.room.message" && 
-                        e.sender.startsWith(`@_plural_${system.slug}_`) &&
-                        e.content?.["m.relates_to"]?.rel_type !== "m.replace" &&
-                        !e.unsigned?.redacted_by &&
-                        Object.keys(e.content || {}).length > 0
-                    );
-                }
-
-                if (targetEvent && targetEvent.sender.startsWith(`@_plural_${system.slug}_`)) {
-                    const originalId = targetEvent.content?.["m.relates_to"]?.rel_type === "m.replace"
-                        ? targetEvent.content["m.relates_to"].event_id
-                        : targetEvent.event_id;
-
-                    console.log(`[Janitor] Deleting message ${originalId} via command from ${sender}`);
-                    await safeRedact(bridgeInstance, roomId, originalId, "UserRequest");
-                }
-
-                await safeRedact(bridgeInstance, roomId, eventId, "PluralCommand");
-                return;
-            }
         }
     }
     
-    // --- JANITOR LOGIC ---
+    // --- Janitor Logic (Proxying) ---
     const system = await proxyCache.getSystemRules(sender, prismaClient);
     if (!system) return;
 
@@ -475,56 +369,37 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                 if (!cleanContent) return;
 
                 console.log(`[Janitor] Proxying for ${member.name} in ${roomId}`);
+                
                 await safeRedact(bridgeInstance, roomId, eventId, "PluralProxy");
                 if (isEdit && originalEventId !== eventId) {
                     await safeRedact(bridgeInstance, roomId, originalEventId, "PluralProxyOriginal");
                 }
-
+                
                 try {
                     const ghostUserId = `@_plural_${system.slug}_${member.slug}:${DOMAIN}`;
                     const intent = bridgeInstance.getIntent(ghostUserId);
-                    
-                    const finalDisplayName = system.systemTag 
-                        ? `${member.displayName || member.name} ${system.systemTag}`
-                        : (member.displayName || member.name);
+                    const finalDisplayName = system.systemTag ? `${member.displayName || member.name} ${system.systemTag}` : (member.displayName || member.name);
 
-                    try {
-                        await intent.join(roomId);
-                    } catch (joinError) {
-                        try {
-                            await bridgeInstance.getIntent().invite(roomId, ghostUserId);
-                            await intent.join(roomId);
-                        } catch (e) {}
+                    await intent.ensureRegistered();
+                    try { await intent.join(roomId); } catch (e) {
+                        try { await bridgeInstance.getIntent().invite(roomId, ghostUserId); await intent.join(roomId); } catch (e2) {}
                     }
 
-                    try {
-                        await intent.setDisplayName(finalDisplayName);
-                        if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
-                    } catch (e) {}
+                    // Ensure ghost device is registered
+                    const machine = await cryptoManager.getMachine(ghostUserId);
+                    await registerDevice(intent, machine.deviceId.toString());
 
-                    // --- PRESERVE RELATIONS (REPLIES) ---
-                    const content: any = {
-                        msgtype: "m.text",
-                        body: cleanContent
-                    };
+                    try { await intent.setDisplayName(finalDisplayName); if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl); } catch (e) {}
 
+                    const payload: any = { msgtype: "m.text", body: cleanContent };
                     if (event.content["m.relates_to"]) {
                         const relatesTo = { ...event.content["m.relates_to"] } as any;
-                        // If this was an edit, we don't want the ghost to "edit" the user's message
-                        // (which it can't do anyway). We want it to be a new message.
-                        if (relatesTo.rel_type === "m.replace") {
-                            delete relatesTo.rel_type;
-                            delete relatesTo.event_id;
-                        }
-                        
-                        if (Object.keys(relatesTo).length > 0) {
-                            content["m.relates_to"] = relatesTo;
-                        }
+                        if (relatesTo.rel_type === "m.replace") { delete relatesTo.rel_type; delete relatesTo.event_id; }
+                        if (Object.keys(relatesTo).length > 0) payload["m.relates_to"] = relatesTo;
                     }
 
-                    await intent.sendEvent(roomId, "m.room.message", content);
+                    await sendEncryptedEvent(intent, roomId, "m.room.message", payload, cryptoManager, currentAsToken);
                 } catch (e) {}
-                
                 return;
             }
         }
@@ -532,68 +407,81 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
 };
 
 export const startMatrixBot = async () => {
-    // 1. Load Registration
     const reg = yaml.load(fs.readFileSync(REGISTRATION_PATH, 'utf8')) as AppServiceRegistration;
+    asToken = (reg as any).as_token;
 
-    // 2. Initialize Bridge
     bridge = new Bridge({
         homeserverUrl: HOMESERVER_URL,
         domain: DOMAIN,
         registration: REGISTRATION_PATH,
-        intentOptions: {
-            clients: { 
-                dontCheckPowerLevel: true
-            }
-        },
+        roomStore: "./data/room-store.db",
+        userStore: "./data/user-store.db",
+        userActivityStore: "./data/user-activity-store.db",
+        intentOptions: { clients: { dontCheckPowerLevel: true } },
         controller: {
-            onUserQuery: function (queriedUser: any) {
-                return {}; // Auto-create users
-            },
-            onEvent: async function (request: Request<WeakEvent>, context?: BridgeContext) {
-                await handleEvent(request, context, bridge, prisma);
-            }
+            onUserQuery: () => ({}),
+            onEvent: async (request: Request<WeakEvent>) => { await handleEvent(request, undefined, bridge, prisma); }
         }
     });
 
     console.log("Starting Matrix Bridge...");
-    await bridge.run(8008); 
+    await bridge.initialise();
 
-    // 3. Start Decrypter Sidecar
-    await decrypterService.start();
+    const botUserId = bridge.getBot().getUserId();
+    
+    // Setup Transaction Interception for E2EE
+    const router = new TransactionRouter(cryptoManager, botUserId, 
+        async (userId) => {
+            const machine = await cryptoManager.getMachine(userId);
+            const intent = bridge.getIntent(userId);
+            await registerDevice(intent, machine.deviceId.toString());
+            await processCryptoRequests(machine, intent, asToken);
+        },
+        async (decryptedEvent) => {
+            await handleEvent({ getData: () => decryptedEvent } as any, undefined, bridge, prisma, true, asToken);
+        }
+    );
 
-    // 4. Cleanup: Join any missed invitations while we were offline
+    // Initial Key Upload for Bot (MSC3202)
+    console.log("[Crypto] Performing initial identity sync for Bot...");
+    const botMachine = await cryptoManager.getMachine(botUserId);
+    const botIntent = bridge.getIntent(botUserId);
+    await registerDevice(botIntent, botMachine.deviceId.toString());
+    await botMachine.receiveSyncChanges("[]", new DeviceLists(), {}, []);
+    await processCryptoRequests(botMachine, botIntent, asToken);
+
+    // Hook middleware into Express
+    const appServiceInstance = new AppService({ homeserverToken: (reg as any).hs_token });
+    const app = appServiceInstance.app as any;
+    app.use(async (req: any, res: any, next: any) => {
+        if (req.method === 'PUT' && req.path.includes('/transactions/')) {
+            try { await router.processTransaction(req.body); } catch (e) { console.error("[Router] Error:", e); }
+        }
+        next();
+    });
+
+    if (app._router?.stack) {
+        const stack = app._router.stack;
+        const myLayer = stack.pop();
+        const insertionIndex = stack.findIndex((l: any) => l.route);
+        if (insertionIndex !== -1) stack.splice(insertionIndex, 0, myLayer);
+        else stack.unshift(myLayer);
+    }
+
+    await bridge.listen(8008, "0.0.0.0", 10, appServiceInstance);
     await joinPendingInvites(bridge);
 };
 
 const joinPendingInvites = async (bridgeInstance: Bridge) => {
-    console.log("[Bot] Checking for pending invitations...");
     try {
         const botClient = bridgeInstance.getBot().getClient();
-        
-        // We do a minimal initial sync to find current invitations
-        const syncData = await botClient.doRequest("GET", "/_matrix/client/v3/sync", {
-            filter: '{"room":{"timeline":{"limit":1}}}'
-        });
-
+        const syncData = await botClient.doRequest("GET", "/_matrix/client/v3/sync", { filter: '{"room":{"timeline":{"limit":1}}}' });
         if (syncData.rooms?.invite) {
-            const inviteRoomIds = Object.keys(syncData.rooms.invite);
-            if (inviteRoomIds.length > 0) {
-                console.log(`[Bot] Found ${inviteRoomIds.length} pending invitations. Joining...`);
-                for (const roomId of inviteRoomIds) {
-                    try {
-                        await bridgeInstance.getIntent().join(roomId);
-                        console.log(`[Bot] Successfully joined ${roomId}`);
-                    } catch (joinErr: any) {
-                        console.error(`[Bot] Failed to join ${roomId}:`, joinErr.message);
-                    }
-                }
-            } else {
-                console.log("[Bot] No pending invitations found.");
+            for (const roomId of Object.keys(syncData.rooms.invite)) {
+                try { await bridgeInstance.getIntent().join(roomId); } catch (e) {}
             }
         }
-    } catch (e: any) {
-        console.warn("[Bot] Failed to sweep invites:", e.message);
-    }
+    } catch (e) {}
 };
 
 export const getBridge = () => bridge;

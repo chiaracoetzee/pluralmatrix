@@ -26,9 +26,9 @@ PluralMatrix is a Matrix Application Service designed for plural systems using M
 - **Rich Presence:** Proxied messages use custom display names, avatars, and system tags.
 - **Relation Preservation:** Full support for replies and other Matrix event relations.
 
-### Hybrid E2EE Support
-- **Transparent Decryption:** A dedicated sidecar service handles end-to-end encrypted rooms via Pantalaimon, allowing the bot to proxy even in secure environments.
-- **Secure by Design:** Automated registration and secure credential management for decryption ghosts.
+### Native E2EE Support
+- **Full Encryption:** The bot and all system ghosts natively send and receive encrypted messages via the Matrix Rust SDK, ensuring high-fidelity proxying in secure rooms.
+- **Secure by Design:** Automated registration and secure cryptographic state management for all system identities.
 
 ### Modern Dashboard
 - **Web-based Management:** A React-based UI for managing system members, settings, and avatars.

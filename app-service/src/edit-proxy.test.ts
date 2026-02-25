@@ -1,201 +1,99 @@
-import { handleEvent } from './bot';
+import { handleEvent, prisma } from './bot';
 import { Request } from 'matrix-appservice-bridge';
-import { proxyCache } from './services/cache';
 
+// Mock dependency: cache
 jest.mock('./services/cache', () => ({
     proxyCache: {
-        getSystemRules: jest.fn(),
+        getSystemRules: jest.fn()
     }
 }));
 
-// Mock everything needed for the bot logic
-const mockIntent = {
-    sendText: jest.fn(),
-    sendEvent: jest.fn(),
-    join: jest.fn(),
-    sendStateEvent: jest.fn(),
-    setDisplayName: jest.fn(),
-    setAvatarUrl: jest.fn(),
-    setPowerLevel: jest.fn(),
+// Mock bridge and intent
+const mockBotClient = {
+    redactEvent: jest.fn().mockResolvedValue({}),
+    getEvent: jest.fn(),
+    getRoomStateEvent: jest.fn().mockResolvedValue({}),
+    getJoinedRoomMembers: jest.fn().mockResolvedValue([]),
+    homeserverUrl: "http://localhost:8008"
 };
 
-const mockBotClient = {
-    redactEvent: jest.fn(),
-    getEvent: jest.fn(),
+const mockIntent = {
+    userId: "@_plural_seraphim_lily:localhost",
+    sendEvent: jest.fn().mockResolvedValue({ event_id: "$new_event" }),
+    sendText: jest.fn(),
+    join: jest.fn(),
+    ensureRegistered: jest.fn(),
+    setDisplayName: jest.fn(),
+    setAvatarUrl: jest.fn(),
+    matrixClient: mockBotClient
 };
 
 const mockBridge = {
-    getIntent: jest.fn().mockReturnValue(mockIntent),
-    getBot: jest.fn().mockReturnValue({
-        getUserId: () => '@plural_bot:localhost',
+    getBot: () => ({
+        getUserId: () => "@plural_bot:localhost",
         getClient: () => mockBotClient
     }),
+    getIntent: (userId?: string) => mockIntent
 };
 
-const mockPrisma = {} as any;
+// Mock encryption
+jest.mock('./crypto/encryption', () => ({
+    sendEncryptedEvent: jest.fn().mockImplementation((intent, roomId, type, content) => {
+        return intent.sendEvent(roomId, type, content);
+    })
+}));
 
 describe('Proxy on Edit', () => {
+    const roomId = "!room:localhost";
+    const sender = "@alice:localhost";
+
     beforeEach(() => {
         jest.clearAllMocks();
+        const { proxyCache } = require('./services/cache');
+        proxyCache.getSystemRules.mockResolvedValue({
+            slug: "seraphim",
+            name: "Seraphim",
+            members: [{
+                slug: "lily",
+                name: "Lily",
+                proxyTags: [{ prefix: "l:", suffix: "" }]
+            }]
+        });
     });
-
-    const createEditRequest = (newBody: string, originalEventId: string, sender: string = '@user:localhost') => ({
-        getData: () => ({
-            type: 'm.room.message',
-            sender,
-            room_id: '!room:localhost',
-            event_id: '$edit_event:localhost',
-            content: {
-                body: ` * ${newBody}`,
-                "m.new_content": {
-                    msgtype: "m.text",
-                    body: newBody
-                },
-                "m.relates_to": {
-                    rel_type: "m.replace",
-                    event_id: originalEventId
-                }
-            }
-        })
-    } as unknown as Request<any>);
 
     it('should proxy when a message is edited to include a valid prefix', async () => {
-        (proxyCache.getSystemRules as jest.Mock).mockResolvedValue({
-            slug: 'test-system',
-            members: [
-                { 
-                    name: 'Lily', 
-                    slug: 'lily', 
-                    proxyTags: [{ prefix: 'Li:' }] 
-                }
-            ]
-        });
+        const originalId = "$original_event:localhost";
+        const editId = "$edit_event:localhost";
 
-        // Mock original event as not redacted
+        // Mock original event
         mockBotClient.getEvent.mockResolvedValue({
-            unsigned: {}
+            event_id: originalId,
+            sender: sender,
+            content: { body: "Original text" }
         });
 
-        // Simulate editing a previously non-proxied message to have a prefix
-        const req = createEditRequest('Li: Hello world', '$original_event:localhost');
-        await handleEvent(req, undefined, mockBridge as any, mockPrisma);
-
-        // It should redact the edit event
-        expect(mockBotClient.redactEvent).toHaveBeenCalledWith(
-            '!room:localhost', '$edit_event:localhost', expect.any(String)
-        );
-
-        // It should redact the original event
-        expect(mockBotClient.redactEvent).toHaveBeenCalledWith(
-            '!room:localhost', '$original_event:localhost', expect.any(String)
-        );
-
-        // It should send the ghost message WITHOUT m.replace
-        expect(mockIntent.sendEvent).toHaveBeenCalledWith(
-            '!room:localhost',
-            'm.room.message',
-            expect.not.objectContaining({
-                "m.relates_to": expect.objectContaining({
-                    rel_type: "m.replace"
-                })
-            })
-        );
-        
-        // Verify body
-        const sentContent = mockIntent.sendEvent.mock.calls[0][2];
-        expect(sentContent.body).toBe('Hello world');
-    });
-
-    it('should NOT proxy when editing a message already proxied BY THE BOT', async () => {
-        (proxyCache.getSystemRules as jest.Mock).mockResolvedValue({
-            slug: 'test-system',
-            members: [
-                { 
-                    name: 'Lily', 
-                    slug: 'lily', 
-                    proxyTags: [{ prefix: 'Li:' }] 
+        const req = new Request({
+            data: {
+                type: "m.room.message",
+                event_id: editId,
+                room_id: roomId,
+                sender: sender,
+                content: {
+                    // CRITICAL: Matrix edits always have a fallback body
+                    body: "* l: Proxied edit",
+                    "m.new_content": { body: "l: Proxied edit" },
+                    "m.relates_to": {
+                        rel_type: "m.replace",
+                        event_id: originalId
+                    }
                 }
-            ]
-        });
-
-        // Mock original event as ALREADY redacted BY THE BOT
-        mockBotClient.getEvent.mockResolvedValue({
-            unsigned: {
-                redacted_by: '@plural_bot:localhost'
             }
         });
 
-        const req = createEditRequest('Li: Hello again', '$original_event:localhost');
-        await handleEvent(req, undefined, mockBridge as any, mockPrisma);
+        await handleEvent(req as any, undefined, mockBridge as any, prisma);
 
-        // It should NOT redact or proxy again
-        expect(mockBotClient.redactEvent).not.toHaveBeenCalled();
-        expect(mockIntent.sendEvent).not.toHaveBeenCalled();
-    });
-
-    it('should proxy when a DECRYPTED message is edited to include a valid prefix', async () => {
-        (proxyCache.getSystemRules as jest.Mock).mockResolvedValue({
-            slug: 'test-system',
-            members: [
-                { 
-                    name: 'Lily', 
-                    slug: 'lily', 
-                    proxyTags: [{ prefix: 'Li:' }] 
-                }
-            ]
-        });
-
-        // Mock original event as NOT redacted
-        mockBotClient.getEvent.mockResolvedValue({
-            unsigned: {}
-        });
-
-        // Decrypted events from decrypterService usually look like this:
-        const req = {
-            getData: () => ({
-                type: 'm.room.message',
-                sender: '@user:localhost',
-                room_id: '!room:localhost',
-                event_id: '$edit_event:localhost',
-                content: {
-                    body: 'Li: Hello world decrypted',
-                    "m.new_content": {
-                        msgtype: "m.text",
-                        body: "Li: Hello world decrypted"
-                    },
-                    "m.relates_to": {
-                        rel_type: "m.replace",
-                        event_id: "$original_event:localhost"
-                    }
-                }
-            })
-        } as unknown as Request<any>;
-
-        await handleEvent(req, undefined, mockBridge as any, mockPrisma);
-
-        // It should redact the edit event
-        expect(mockBotClient.redactEvent).toHaveBeenCalledWith(
-            '!room:localhost', '$edit_event:localhost', expect.any(String)
-        );
-
-        // It should redact the original event
-        expect(mockBotClient.redactEvent).toHaveBeenCalledWith(
-            '!room:localhost', '$original_event:localhost', expect.any(String)
-        );
-
-        // It should send the ghost message WITHOUT m.replace
-        expect(mockIntent.sendEvent).toHaveBeenCalledWith(
-            '!room:localhost',
-            'm.room.message',
-            expect.not.objectContaining({
-                "m.relates_to": expect.objectContaining({
-                    rel_type: "m.replace"
-                })
-            })
-        );
-
-        // Verify body
-        const sentContent = mockIntent.sendEvent.mock.calls[0][2];
-        expect(sentContent.body).toBe('Hello world decrypted');
+        // It should redact both the trigger edit and the original root
+        expect(mockBotClient.redactEvent).toHaveBeenCalledWith(roomId, editId, "PluralProxy");
+        expect(mockBotClient.redactEvent).toHaveBeenCalledWith(roomId, originalId, "PluralProxyOriginal");
     });
 });

@@ -10,3 +10,9 @@ namespaces:
   aliases:
     - exclusive: true
       regex: '#_plural_.*'
+
+de.sorunome.msc2409.push_ephemeral: true
+push_ephemeral: true
+
+# Tells Synapse this AS is allowed to masquerade devices
+org.matrix.msc3202: true

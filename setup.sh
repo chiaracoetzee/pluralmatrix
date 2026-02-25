@@ -42,7 +42,6 @@ JWT_SECRET=$(gen_token)
 REG_SECRET=$(gen_token)
 MACAROON_SECRET=$(gen_token)
 FORM_SECRET=$(gen_token)
-DECRYPTER_PASS=$(gen_token)
 
 # 2. Configure .env
 echo "📝 Configuring .env..."
@@ -54,7 +53,6 @@ sed -i "s/SYNAPSE_SERVER_NAME=.*/SYNAPSE_SERVER_NAME=$DOMAIN/" .env
 echo "SYNAPSE_DOMAIN=$DOMAIN" >> .env
 sed -i "s/AS_TOKEN=.*/AS_TOKEN=$AS_TOKEN/" .env
 sed -i "s/JWT_SECRET=.*/JWT_SECRET=$JWT_SECRET/" .env
-sed -i "s/DECRYPTER_PASSWORD=.*/DECRYPTER_PASSWORD=$DECRYPTER_PASS/" .env
 
 # 3. Configure Synapse (homeserver.yaml)
 echo "🌌 Configuring homeserver.yaml..."
@@ -75,12 +73,6 @@ sed -i "s/as_token: .*/as_token: $AS_TOKEN/" synapse/config/app-service-registra
 sed -i "s/hs_token: .*/hs_token: $HS_TOKEN/" synapse/config/app-service-registration.yaml
 sed -i "s|url: .*|url: http://${PROJECT_NAME}-app-service:8008|" synapse/config/app-service-registration.yaml
 
-# 4.5 Configure Pantalaimon
-echo "🛡️ Configuring pantalaimon.conf..."
-cp pantalaimon/pantalaimon.conf.example pantalaimon/pantalaimon.conf
-sed -i "s/Password = .*/Password = $DECRYPTER_PASS/" pantalaimon/pantalaimon.conf
-sed -i "s|Homeserver = .*|Homeserver = http://${PROJECT_NAME}-synapse:8008|" pantalaimon/pantalaimon.conf
-
 # 5. Generate Signing Key
 echo "✒️ Generating Synapse signing key..."
 sudo docker run -it --rm -v "$(pwd)/synapse/config:/data" \
@@ -94,7 +86,6 @@ echo "✅ Setup Complete!"
 echo "--------------------------------------------------------"
 echo "🚀 NEXT STEPS:"
 echo "1. Start the stack: ./restart-stack.sh"
-echo "   (This will automatically build images and register the Decrypter Ghost)"
 echo "2. Seed the database (Optional):"
 echo "   sudo docker exec -it ${PROJECT_NAME}-app-service npx ts-node seed-db.ts"
 echo ""

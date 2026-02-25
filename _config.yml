@@ -34,7 +34,6 @@ exclude:
   - app-service/dist
   - app-service/client/node_modules
   - synapse
-  - pantalaimon
   - .gemini
   - setup.sh
   - restart-stack.sh

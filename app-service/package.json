@@ -12,6 +12,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@matrix-org/matrix-sdk-crypto-nodejs": "^0.4.0",
     "@prisma/client": "5.22.0",
     "@types/adm-zip": "^0.5.7",
     "@types/archiver": "^7.0.0",
@@ -25,6 +26,7 @@
     "@types/supertest": "^6.0.3",
     "adm-zip": "^0.5.16",
     "archiver": "^7.0.1",
+    "better-sqlite3": "^12.6.2",
     "body-parser": "^2.2.2",
     "cors": "^2.8.6",
     "express": "^5.2.1",

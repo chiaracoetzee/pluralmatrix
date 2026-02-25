@@ -97,27 +97,6 @@ until curl -s http://localhost:8008/_matrix/static/ >/dev/null 2>&1; do
 done
 echo " Ready!"
 
-# 2.1 Ensure Decrypter User exists
-echo "🛡️ Ensuring Decrypter User exists..."
-DECRYPTER_PASSWORD=$(grep DECRYPTER_PASSWORD .env | cut -d '=' -f2)
-sudo docker exec ${PROJECT_NAME}-synapse register_new_matrix_user \
-    -c /data/homeserver.yaml \
-    -u plural_decrypter \
-    -p "$DECRYPTER_PASSWORD" \
-    --admin http://localhost:8008 2>/dev/null || echo "   (Decrypter user already exists or registration failed)"
-
-# 2.5 Ensure Pantalaimon is running
-echo "🛡️ Refreshing Pantalaimon container..."
-sudo docker rm -f ${PROJECT_NAME}-pantalaimon 2>/dev/null || true
-sudo docker run -d \
-  --name ${PROJECT_NAME}-pantalaimon \
-  --network ${PROJECT_NAME}-plural-net \
-  -p 8010:8010 \
-  -v "$(pwd)/pantalaimon/pantalaimon.conf:/pantalaimon.conf" \
-  -v ${PROJECT_NAME}-pantalaimon-data:/data \
-  matrixdotorg/pantalaimon:latest \
-  -c /pantalaimon.conf --data-path /data
-
 # 3. Rebuild the App Service Image
 echo "📦 Rebuilding App Service image..."
 sudo docker build -t ${PROJECT_NAME}-app-service ./app-service
@@ -134,8 +113,8 @@ sudo docker run -d \
   --env-file ./.env \
   -e PROJECT_NAME="${PROJECT_NAME}" \
   -v "$(pwd)/synapse/config/app-service-registration.yaml:/data/app-service-registration.yaml" \
+  -v "${PROJECT_NAME}-app-service-data:/app/data" \
   -e SYNAPSE_URL="http://${PROJECT_NAME}-synapse:8008" \
-  -e PANTALAIMON_URL="http://${PROJECT_NAME}-pantalaimon:8010" \
   -p 9000:9000 \
   ${PROJECT_NAME}-app-service
 

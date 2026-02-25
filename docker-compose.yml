@@ -28,20 +28,13 @@ services:
       - ./synapse/modules:/modules  # Mount our custom module
     depends_on:
       - postgres
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/_matrix/static/"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     ports:
       - "8008:8008"
-    networks:
-      - plural-net
-
-  pantalaimon:
-    image: matrixdotorg/pantalaimon:latest
-    container_name: ${PROJECT_NAME:-pluralmatrix}-pantalaimon
-    ports:
-      - "8010:8010"
-    volumes:
-      - ./pantalaimon/pantalaimon.conf:/pantalaimon.conf
-      - pantalaimon_data:/data
-    command: -c /pantalaimon.conf --data-path /data
     networks:
       - plural-net
 
@@ -56,9 +49,12 @@ services:
       - APP_PORT=${APP_PORT:-9000}
     volumes:
       - ./synapse/config/app-service-registration.yaml:/data/app-service-registration.yaml
+      - ./app-service/data:/app/data
     depends_on:
-      - postgres
-      - synapse
+      postgres:
+        condition: service_started
+      synapse:
+        condition: service_healthy
     ports:
       - "9000:9000"
     networks:
@@ -69,4 +65,3 @@ networks:
 
 volumes:
   postgres_data:
-  pantalaimon_data:

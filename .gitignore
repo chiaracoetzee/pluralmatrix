@@ -26,13 +26,16 @@ synapse/config/media_store/
 # OS files
 .DS_Store
 Thumbs.db
+*~
 \#*#
+
+# Matrix bridge stores
+app-service/data/
+app-service/test-crypto-store/
 
 # Docker
 .dockercache
-synapse/modules/plural_gatekeeper.py~
 *:Zone.Identifier
-pantalaimon/pantalaimon.conf
 
 # Jekyll Build Output
 _site/

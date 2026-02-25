@@ -1,4 +1,5 @@
-import { getBridge } from '../bot';
+import { getBridge, cryptoManager } from '../bot';
+import { sendEncryptedEvent } from '../crypto/encryption';
 
 const DOMAIN = process.env.SYNAPSE_DOMAIN || "localhost";
 
@@ -15,10 +16,11 @@ export interface GhostMessageOptions {
         displayName?: string | null;
         avatarUrl?: string | null;
     };
+    asToken: string;
 }
 
 export const sendGhostMessage = async (options: GhostMessageOptions) => {
-    const { roomId, cleanContent, system, member } = options;
+    const { roomId, cleanContent, system, member, asToken } = options;
     
     try {
         const bridge = getBridge();
@@ -57,10 +59,15 @@ export const sendGhostMessage = async (options: GhostMessageOptions) => {
             if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
         }
         
-        await intent.sendText(roomId, cleanContent);
+        // USE sendEncryptedEvent for ghosts too
+        await sendEncryptedEvent(intent, roomId, "m.room.message", {
+            msgtype: "m.text",
+            body: cleanContent
+        }, cryptoManager, asToken);
+
         console.log(`[GhostService] Ghost message sent!`);
     } catch (e: any) { 
         console.error("[GhostService] Error:", e.message || e);
-        throw e; // Let the caller decide how to handle it
+        throw e;
     }
 };

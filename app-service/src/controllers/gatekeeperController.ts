@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { prisma } from '../bot';
+import { prisma, asToken } from '../bot';
 import { proxyCache } from '../services/cache';
 import { GatekeeperCheckSchema } from '../schemas/gatekeeper';
 import { sendGhostMessage } from '../services/ghostService';
@@ -25,7 +25,7 @@ export const checkMessage = async (req: Request, res: Response) => {
 
                     console.log(`[Gatekeeper] PROXY MATCH! Member: ${member.name} (${member.slug}) for sender ${sender}`);
 
-                    // Trigger Ghost (Async but not fire-and-forget anymore, it's a service)
+                    // Trigger Ghost using the global Appservice Token
                     sendGhostMessage({
                         roomId: room_id,
                         cleanContent,
@@ -35,7 +35,8 @@ export const checkMessage = async (req: Request, res: Response) => {
                             name: member.name,
                             displayName: member.displayName,
                             avatarUrl: member.avatarUrl
-                        }
+                        },
+                        asToken: asToken
                     }).catch(e => {
                         console.error("[Gatekeeper] Failed to send ghost message:", e.message);
                     });
