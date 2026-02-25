@@ -1,7 +1,7 @@
 import { Intent } from "matrix-appservice-bridge";
 import { OlmMachineManager } from "./OlmMachineManager";
 import { RoomId, UserId, EncryptionSettings, DeviceLists } from "@matrix-org/matrix-sdk-crypto-nodejs";
-import { processCryptoRequests, registerDevice } from "./crypto-utils";
+import { processCryptoRequests, registerDevice, dispatchRequest } from "./crypto-utils";
 
 /**
  * Manually dispatches to-device messages (like Megolm room keys) to Synapse.
@@ -73,37 +73,35 @@ export async function sendEncryptedEvent(
         const rustRoomId = new RoomId(roomId);
 
         console.log(`[Crypto] Step A: Discovery & Identity Phase...`);
+        
+        // UNIFIED DISCOVERY HACK: Force the SDK to recognize device list changes.
+        // This is necessary because Appservice users don't receive /sync updates.
         const changedDevices = new DeviceLists(rustUserIds, []);
         await machine.receiveSyncChanges("[]", changedDevices, {}, []);
         await machine.updateTrackedUsers(rustUserIds);
         
-        // Pass 1: Publish identity keys and query members
+        // Pass 1: Publish identity and handle background discovery (KeysQuery)
         await processCryptoRequests(machine, intent, asToken);
         
-        // Propagation wait for new identities to help peer servers/clients
         if (isNewDevice) {
             console.log(`[Crypto]   - New ghost identity. Waiting for HS propagation (1s)...`);
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
 
-        // Pass 2: Claim OTKs for anyone we don't have a session with yet
-        console.log(`[Crypto]   - Verifying Olm sessions for recipients...`);
+        // Pass 2: CRITICAL - Explicitly execute the KeysClaimRequest for missing sessions
+        console.log(`[Crypto]   - Ensuring Olm sessions exist for recipients...`);
         const missingSessionsReq = await machine.getMissingSessions(rustUserIds);
         if (missingSessionsReq) {
-            // Note: getMissingSessions returns a KeysClaimRequest that is also queued in outgoingRequests
+            console.log(`[Crypto]   - Found missing Olm sessions. Dispatching KeysClaim...`);
+            await dispatchRequest(machine, intent, asToken, missingSessionsReq);
+            // Drain any background discovery triggered by the claim
             await processCryptoRequests(machine, intent, asToken);
         }
         
         console.log(`[Crypto] Step B: Key Sharing Phase...`);
-        // Force rotation to ensure fresh starts for new ghosts
-        if ((machine as any).invalidateGroupSession) {
-            await (machine as any).invalidateGroupSession(rustRoomId);
-        }
-
         const settings = new EncryptionSettings();
         settings.onlyAllowTrustedDevices = false;
         
-        // shareRoomKey will now have the necessary Olm sessions to encrypt the Megolm key
         const shareRequests = await (machine as any).shareRoomKey(rustRoomId, rustUserIds, settings);
 
         if (shareRequests && shareRequests.length > 0) {
@@ -117,7 +115,7 @@ export async function sendEncryptedEvent(
             }
         }
 
-        // Pass 3: Final cleanup of any background crypto tasks
+        // Pass 3: Final cleanup
         await processCryptoRequests(machine, intent, asToken);
 
         // 4. Finally encrypt
@@ -128,7 +126,6 @@ export async function sendEncryptedEvent(
         const encryptedContentString = await machine.encryptRoomEvent(rustRoomId, eventType, JSON.stringify(contentToEncrypt));
         const encryptedPayload = JSON.parse(encryptedContentString);
         
-        // Hoist the relation
         if (relatesTo) {
             encryptedPayload["m.relates_to"] = relatesTo;
         }

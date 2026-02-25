@@ -33,7 +33,7 @@ async function doAsRequest(
 
     if (!res.ok) {
         const text = await res.text();
-        console.error(`[Crypto] Matrix API Error ${res.status}: ${text} (${method} ${url.pathname})`);
+        console.error(`[Crypto] Matrix API Error ${res.status}: ${text} (${method} ${url.toString()})`);
         
         const error: any = new Error(`Matrix API Error ${res.status}`);
         error.status = res.status;
@@ -78,89 +78,69 @@ export async function registerDevice(intent: Intent, deviceId: string): Promise<
     }
 }
 
-export async function processCryptoRequests(machine: OlmMachine, intent: Intent, asToken: string) {
+/**
+ * Dispatches a single cryptographic request to Synapse.
+ */
+export async function dispatchRequest(machine: OlmMachine, intent: Intent, asToken: string, req: any) {
     const userId = intent.userId;
     const hsUrl = intent.matrixClient.homeserverUrl.replace(/\/$/, "");
     const deviceId = machine.deviceId.toString();
 
+    try {
+        let response: any;
+
+        switch (req.type) {
+            case RequestType.KeysUpload:
+                try {
+                    response = await doAsRequest(hsUrl, asToken, userId, "POST", "/_matrix/client/v3/keys/upload", JSON.parse(req.body), deviceId);
+                } catch (err: any) {
+                    if (err.body && err.body.includes("already exists")) {
+                        response = { "one_time_key_counts": { "signed_curve25519": 50 } }; 
+                    } else throw err;
+                }
+                break;
+
+            case RequestType.KeysQuery:
+                const queryBody = JSON.parse(req.body);
+                response = await doAsRequest(hsUrl, asToken, userId, "POST", "/_matrix/client/v3/keys/query", queryBody);
+                const devCount = Object.keys(response.device_keys || {}).length;
+                console.log(`[KEY_EXCHANGE] KeysQuery success for ${userId}. Found ${devCount} users.`);
+                break;
+
+            case RequestType.KeysClaim:
+                const claimBody = JSON.parse(req.body);
+                response = await doAsRequest(hsUrl, asToken, userId, "POST", "/_matrix/client/v3/keys/claim", claimBody);
+                const OTKCount = response.one_time_keys ? Object.keys(response.one_time_keys).length : 0;
+                console.log(`[KEY_EXCHANGE] KeysClaim success for ${userId}. Obtained OTKs for ${OTKCount} users.`);
+                break;
+            
+            case RequestType.SignatureUpload:
+                response = await doAsRequest(hsUrl, asToken, userId, "POST", "/_matrix/client/v3/keys/signatures/upload", JSON.parse(req.body));
+                break;
+
+            case RequestType.ToDevice:
+                console.log(`[KEY_EXCHANGE] Sending ToDevice ${req.eventType} from ${userId}`);
+                response = await doAsRequest(hsUrl, asToken, userId, "PUT", `/_matrix/client/v3/sendToDevice/${encodeURIComponent(req.eventType)}/${encodeURIComponent(req.txnId)}`, JSON.parse(req.body));
+                break;
+
+            default:
+                console.warn(`[Crypto] Unknown request type: ${req.type}`);
+                return;
+        }
+        
+        await machine.markRequestAsSent(req.id, req.type, JSON.stringify(response));
+    } catch (e: any) {
+        console.error(`[KEY_EXCHANGE] ❌ FAILED request ${req.id} (Type ${req.type}) for ${userId}:`, e.message);
+    }
+}
+
+export async function processCryptoRequests(machine: OlmMachine, intent: Intent, asToken: string) {
     let loopCount = 0;
     while (loopCount < 10) {
         const requests = await machine.outgoingRequests();
         if (requests.length === 0) break;
-        
-        console.log(`[Crypto] Pass ${loopCount + 1}: Executing ${requests.length} network requests for ${userId}`);
-        
         for (const req of requests) {
-            try {
-                let response: any;
-
-                switch (req.type) {
-                    case RequestType.KeysUpload:
-                        const uploadReq = req as KeysUploadRequest;
-                        try {
-                            response = await doAsRequest(
-                                hsUrl, asToken, userId, "POST", 
-                                `/_matrix/client/v3/keys/upload`,
-                                JSON.parse(uploadReq.body),
-                                deviceId
-                            );
-                        } catch (err: any) {
-                            if (err.body && err.body.includes("already exists")) {
-                                response = { "one_time_key_counts": { "signed_curve25519": 50 } }; 
-                            } else { 
-                                throw err; 
-                            }
-                        }
-                        break;
-
-                    case RequestType.KeysQuery:
-                        const queryReq = req as KeysQueryRequest;
-                        response = await doAsRequest(
-                            hsUrl, asToken, userId, "POST", 
-                            `/_matrix/client/v3/keys/query`, 
-                            JSON.parse(queryReq.body)
-                        );
-                        const devCount = Object.keys(response.device_keys || {}).length;
-                        console.log(`[Crypto]   - KeysQuery success: ${devCount} users returned.`);
-                        break;
-
-                    case RequestType.KeysClaim:
-                        const claimReq = req as KeysClaimRequest;
-                        response = await doAsRequest(
-                            hsUrl, asToken, userId, "POST", 
-                            `/_matrix/client/v3/keys/claim`, 
-                            JSON.parse(claimReq.body)
-                        );
-                        break;
-                    
-                    case RequestType.SignatureUpload:
-                        const sigReq = req as SignatureUploadRequest;
-                        response = await doAsRequest(
-                            hsUrl, asToken, userId, "POST", 
-                            `/_matrix/client/v3/keys/signatures/upload`, 
-                            JSON.parse(sigReq.body)
-                        );
-                        break;
-
-                    case RequestType.ToDevice:
-                        const toDeviceReq = req as any; 
-                        console.log(`[Crypto]   - Sending ToDevice (${toDeviceReq.eventType}) for ${userId}`);
-                        response = await doAsRequest(
-                            hsUrl, asToken, userId, "PUT", 
-                            `/_matrix/client/v3/sendToDevice/${encodeURIComponent(toDeviceReq.eventType)}/${encodeURIComponent(toDeviceReq.txnId)}`, 
-                            JSON.parse(toDeviceReq.body)
-                        );
-                        break;
-
-                    default:
-                        console.warn(`[Crypto]   - Unknown request type: ${req.type}`);
-                        continue;
-                }
-                
-                await machine.markRequestAsSent(req.id, req.type, JSON.stringify(response));
-            } catch (e: any) {
-                console.error(`[Crypto]   - FAILED request ${req.id} (Type ${req.type}):`, e.message);
-            }
+            await dispatchRequest(machine, intent, asToken, req);
         }
         loopCount++;
     }

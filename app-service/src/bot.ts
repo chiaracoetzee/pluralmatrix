@@ -26,6 +26,11 @@ export const setAsToken = (token: string) => {
 
 // Helper to send plain text (Encrypted if needed)
 const sendEncryptedText = async (intent: Intent, roomId: string, text: string) => {
+    // Ensure bot device is registered before responding
+    const botUserId = intent.userId;
+    const machine = await cryptoManager.getMachine(botUserId);
+    await registerDevice(intent, machine.deviceId.toString());
+
     return sendEncryptedEvent(intent, roomId, "m.room.message", {
         msgtype: "m.text",
         body: text
@@ -34,6 +39,11 @@ const sendEncryptedText = async (intent: Intent, roomId: string, text: string) =
 
 // Helper to send formatted Markdown (Encrypted if needed)
 const sendRichText = async (intent: Intent, roomId: string, text: string) => {
+    // Ensure bot device is registered before responding
+    const botUserId = intent.userId;
+    const machine = await cryptoManager.getMachine(botUserId);
+    await registerDevice(intent, machine.deviceId.toString());
+
     const html = await marked.parse(text, { breaks: true });
     return sendEncryptedEvent(intent, roomId, "m.room.message", {
         msgtype: "m.text",
