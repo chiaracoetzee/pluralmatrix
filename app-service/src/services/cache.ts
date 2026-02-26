@@ -5,6 +5,7 @@ interface CachedSystem {
     slug: string;
     name: string | null;
     systemTag: string | null;
+    autoproxyId: string | null;
     members: Member[];
 }
 

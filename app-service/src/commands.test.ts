@@ -4,7 +4,8 @@ import { Request } from 'matrix-appservice-bridge';
 // Mock dependency: cache
 jest.mock('./services/cache', () => ({
     proxyCache: {
-        getSystemRules: jest.fn()
+        getSystemRules: jest.fn(),
+        invalidate: jest.fn()
     }
 }));
 
@@ -423,6 +424,41 @@ describe('Bot Commands Resolution Tests', () => {
                 expect.anything()
             );
         });
+
+        it('Case 6: should show error if member slug not found', async () => {
+            mockBotClient.doRequest.mockResolvedValue({
+                chunk: [
+                    {
+                        event_id: "$root",
+                        type: "m.room.message",
+                        sender: "@_plural_seraphim_lily:localhost",
+                        content: { body: "hello" }
+                    }
+                ]
+            });
+
+            const req = new Request({
+                data: {
+                    type: "m.room.message",
+                    event_id: "$cmd_event",
+                    room_id: roomId,
+                    sender: sender,
+                    content: { body: "pk;rp non-existent" }
+                }
+            });
+
+            await handleEvent(req as any, undefined, mockBridge as any, prisma, false, "mock_token");
+            
+            const { sendEncryptedEvent } = require('./crypto/encryption');
+            expect(sendEncryptedEvent).toHaveBeenCalledWith(
+                expect.anything(),
+                roomId,
+                "m.room.message",
+                expect.objectContaining({ body: "No member found with ID: non-existent" }),
+                expect.anything(),
+                expect.anything()
+            );
+        });
     });
 
 
@@ -480,6 +516,178 @@ describe('Bot Commands Resolution Tests', () => {
                 expect.anything(),
                 expect.anything()
             );
+        });
+    });
+
+    describe('Autoproxy', () => {
+        it('pk;ap <slug> should enable autoproxy and emit update', async () => {
+            const { proxyCache } = require('./services/cache');
+            proxyCache.getSystemRules.mockResolvedValue({
+                id: "s1",
+                slug: "seraphim",
+                members: [{ id: "m1", slug: "lily", name: "Lily", proxyTags: [] }]
+            });
+
+            const req = new Request({
+                data: {
+                    type: "m.room.message",
+                    event_id: "$cmd_event",
+                    room_id: roomId,
+                    sender: sender,
+                    content: { body: "pk;ap lily" }
+                }
+            });
+
+            const { prisma } = require('./bot');
+            prisma.system.update = jest.fn().mockResolvedValue({});
+            
+            await handleEvent(req as any, undefined, mockBridge as any, prisma, false, "mock_token");
+
+            expect(prisma.system.update).toHaveBeenCalledWith(expect.objectContaining({
+                where: { id: "s1" },
+                data: { autoproxyId: "m1" }
+            }));
+            
+            const { sendEncryptedEvent } = require('./crypto/encryption');
+            expect(sendEncryptedEvent).toHaveBeenCalledWith(
+                expect.anything(),
+                roomId,
+                "m.room.message",
+                expect.objectContaining({ body: expect.stringContaining("Autoproxy enabled for **Lily**") }),
+                expect.anything(),
+                expect.anything()
+            );
+        });
+
+        it('pk;ap off should disable autoproxy and emit update', async () => {
+            const req = new Request({
+                data: {
+                    type: "m.room.message",
+                    event_id: "$cmd_event",
+                    room_id: roomId,
+                    sender: sender,
+                    content: { body: "pk;ap off" }
+                }
+            });
+
+            const { prisma } = require('./bot');
+            prisma.system.update = jest.fn().mockResolvedValue({});
+            
+            await handleEvent(req as any, undefined, mockBridge as any, prisma, false, "mock_token");
+
+            expect(prisma.system.update).toHaveBeenCalledWith(expect.objectContaining({
+                data: { autoproxyId: null }
+            }));
+            
+            const { sendEncryptedEvent } = require('./crypto/encryption');
+            expect(sendEncryptedEvent).toHaveBeenCalledWith(
+                expect.anything(),
+                roomId,
+                "m.room.message",
+                expect.objectContaining({ body: "Autoproxy disabled." }),
+                expect.anything(),
+                expect.anything()
+            );
+        });
+
+        it('should automatically proxy messages when autoproxy is enabled', async () => {
+            const { proxyCache } = require('./services/cache');
+            proxyCache.getSystemRules.mockResolvedValue({
+                id: "s1",
+                slug: "seraphim",
+                autoproxyId: "m1",
+                members: [{ id: "m1", slug: "lily", name: "Lily", proxyTags: [] }]
+            });
+
+            const req = new Request({
+                data: {
+                    type: "m.room.message",
+                    event_id: "$msg_event",
+                    room_id: roomId,
+                    sender: sender,
+                    content: { body: "Hello world" }
+                }
+            });
+
+            await handleEvent(req as any, undefined, mockBridge as any, prisma, false, "mock_token");
+
+            // Should redact original and send as ghost
+            expect(mockBotClient.redactEvent).toHaveBeenCalledWith(roomId, "$msg_event", "PluralAutoproxy");
+            const { sendEncryptedEvent } = require('./crypto/encryption');
+            expect(sendEncryptedEvent).toHaveBeenCalledWith(
+                expect.objectContaining({ userId: expect.stringContaining("lily") }),
+                roomId,
+                "m.room.message",
+                expect.objectContaining({ body: "Hello world" }),
+                expect.anything(),
+                expect.anything()
+            );
+        });
+
+        it('should NOT proxy if message starts with backslash', async () => {
+            const { proxyCache } = require('./services/cache');
+            proxyCache.getSystemRules.mockResolvedValue({
+                id: "s1",
+                slug: "seraphim",
+                autoproxyId: "m1",
+                members: [{ id: "m1", slug: "lily", name: "Lily", proxyTags: [] }]
+            });
+
+            const req = new Request({
+                data: {
+                    type: "m.room.message",
+                    event_id: "$msg_event",
+                    room_id: roomId,
+                    sender: sender,
+                    content: { body: "\\Hello world" }
+                }
+            });
+
+            await handleEvent(req as any, undefined, mockBridge as any, prisma, false, "mock_token");
+
+            // Should NOT redact or send encrypted event for ghost
+            expect(mockBotClient.redactEvent).not.toHaveBeenCalled();
+            const { sendEncryptedEvent } = require('./crypto/encryption');
+            const ghostCall = sendEncryptedEvent.mock.calls.find((call: any) => call[0].userId.includes("lily"));
+            expect(ghostCall).toBeUndefined();
+        });
+
+        it('should respect explicit proxy tags even if autoproxy is enabled for a different member', async () => {
+            const { proxyCache } = require('./services/cache');
+            proxyCache.getSystemRules.mockResolvedValue({
+                id: "s1",
+                slug: "seraphim",
+                autoproxyId: "m1", // lily is autoproxy
+                members: [
+                    { id: "m1", slug: "lily", name: "Lily", proxyTags: [{ prefix: "l:", suffix: "" }] },
+                    { id: "m2", slug: "riven", name: "Riven", proxyTags: [{ prefix: "r:", suffix: "" }] }
+                ]
+            });
+
+            const req = new Request({
+                data: {
+                    type: "m.room.message",
+                    event_id: "$msg_event",
+                    room_id: roomId,
+                    sender: sender,
+                    content: { body: "r: Hello Riven" }
+                }
+            });
+
+            await handleEvent(req as any, undefined, mockBridge as any, prisma, false, "mock_token");
+
+            // Should redact original and send as RIVEN, NOT LILY
+            expect(mockBotClient.redactEvent).toHaveBeenCalledWith(roomId, "$msg_event", "PluralProxy");
+            const { sendEncryptedEvent } = require('./crypto/encryption');
+            
+            // Check that it was called for Riven
+            const rivenCall = sendEncryptedEvent.mock.calls.find((call: any) => call[0].userId.includes("riven"));
+            expect(rivenCall).toBeDefined();
+            expect(rivenCall[3]).toEqual(expect.objectContaining({ body: "Hello Riven" }));
+
+            // Check that it was NOT called for Lily (the autoproxy)
+            const lilyCall = sendEncryptedEvent.mock.calls.find((call: any) => call[0].userId.includes("lily"));
+            expect(lilyCall).toBeUndefined();
         });
     });
 });

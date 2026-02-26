@@ -7,6 +7,7 @@ const router = Router();
 router.use(authenticateToken);
 
 router.get('/', systemController.getSystem);
+router.get('/events', systemController.streamSystemEvents);
 router.patch('/', systemController.updateSystem);
 
 export default router;

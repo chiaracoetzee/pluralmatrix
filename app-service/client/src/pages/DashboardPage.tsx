@@ -9,7 +9,7 @@ import { LogOut, Plus, Upload, Search, LayoutGrid, List, Trash2, Download, Image
 import { AnimatePresence, motion } from 'framer-motion';
 
 const DashboardPage: React.FC = () => {
-    const { user, logout } = useAuth();
+    const { user, token, logout } = useAuth();
     const [system, setSystem] = useState<any>(null);
     const [members, setMembers] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -45,6 +45,30 @@ const DashboardPage: React.FC = () => {
         fetchMembers();
         fetchSystem();
     }, []);
+
+    useEffect(() => {
+        if (!token) return;
+
+        const API_BASE = import.meta.env.VITE_API_URL || '/api';
+        const sseUrl = `${API_BASE}/system/events?token=${token}`;
+        console.log(`[SSE] Connecting to: ${sseUrl}`);
+        const eventSource = new EventSource(sseUrl);
+
+        eventSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'SYSTEM_UPDATE') {
+                fetchSystem();
+            }
+        };
+
+        eventSource.onerror = (err) => {
+            console.error('SSE Error:', err);
+        };
+
+        return () => {
+            eventSource.close();
+        };
+    }, [token]);
 
     const handleDelete = async (id: string) => {
         if (confirm('Are you sure you want to delete this alter?')) {
@@ -83,10 +107,26 @@ const DashboardPage: React.FC = () => {
         }
     };
 
+    const handleToggleAutoproxy = async (memberId: string) => {
+        try {
+            const newId = system?.autoproxyId === memberId ? null : memberId;
+            const res = await systemService.update({ autoproxyId: newId });
+            setSystem(res.data);
+        } catch (e) {
+            alert('Failed to update autoproxy setting.');
+        }
+    };
+
     const filteredMembers = members.filter((m: any) => 
         m.name.toLowerCase().includes(search.toLowerCase()) || 
         m.slug.toLowerCase().includes(search.toLowerCase())
-    );
+    ).sort((a: any, b: any) => {
+        if (system?.autoproxyId) {
+            if (a.id === system.autoproxyId) return -1;
+            if (b.id === system.autoproxyId) return 1;
+        }
+        return a.slug.localeCompare(b.slug);
+    });
 
     return (
         <div className="min-h-screen pb-20 text-matrix-text">
@@ -239,8 +279,10 @@ const DashboardPage: React.FC = () => {
                                 <MemberCard 
                                     key={member.id} 
                                     member={member} 
+                                    isAutoproxy={system?.autoproxyId === member.id}
                                     onEdit={(m) => { setSelectedMember(m); setIsEditing(true); }}
                                     onDelete={handleDelete}
+                                    onToggleAutoproxy={handleToggleAutoproxy}
                                 />
                             ))}
                         </AnimatePresence>

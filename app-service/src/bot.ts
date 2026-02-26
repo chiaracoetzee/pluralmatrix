@@ -4,6 +4,7 @@ import * as yaml from "js-yaml";
 import * as fs from "fs";
 import { marked } from "marked";
 import { proxyCache } from "./services/cache";
+import { emitSystemUpdate } from "./services/events";
 import { OlmMachineManager } from "./crypto/OlmMachineManager";
 import { TransactionRouter } from "./crypto/TransactionRouter";
 import { DeviceLists, UserId, RoomId } from "@matrix-org/matrix-sdk-crypto-nodejs";
@@ -342,6 +343,44 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
             return;
         }
 
+        if (cmd === "autoproxy" || cmd === "auto" || cmd === "ap") {
+            const system = await proxyCache.getSystemRules(sender, prismaClient);
+            if (!system) {
+                await sendEncryptedText(bridgeInstance.getIntent(), roomId, "You don't have a system registered yet.");
+                return;
+            }
+
+            const targetSlug = parts[1]?.toLowerCase();
+            
+            if (!targetSlug || targetSlug === "off") {
+                await prismaClient.system.update({
+                    where: { id: system.id },
+                    data: { autoproxyId: null }
+                });
+                proxyCache.invalidate(sender);
+                console.log(`[EVENT] Emitting update for ${sender} (OFF)`);
+                emitSystemUpdate(sender);
+                await sendEncryptedText(bridgeInstance.getIntent(), roomId, "Autoproxy disabled.");
+                return;
+            }
+
+            const member = system.members.find(m => m.slug === targetSlug);
+            if (!member) {
+                await sendEncryptedText(bridgeInstance.getIntent(), roomId, `No member found with ID: ${targetSlug}`);
+                return;
+            }
+
+            await prismaClient.system.update({
+                where: { id: system.id },
+                data: { autoproxyId: member.id }
+            });
+            proxyCache.invalidate(sender);
+            console.log(`[EVENT] Emitting update for ${sender} (${member.slug})`);
+            emitSystemUpdate(sender);
+            await sendRichText(bridgeInstance.getIntent(), roomId, `Autoproxy enabled for **${member.name}**.`);
+            return;
+        }
+
         // --- Targeting logic for Edit/Reproxy/Delete ---
         if (["edit", "e", "reproxy", "rp", "message", "msg", "m"].includes(cmd)) {
             const system = await proxyCache.getSystemRules(sender, prismaClient);
@@ -407,6 +446,8 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                     if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
                     
                     await sendEncryptedEvent(intent, roomId, "m.room.message", { msgtype: "m.text", body: latestText }, cryptoManager, currentAsToken);
+                } else {
+                    await sendEncryptedText(bridgeInstance.getIntent(), roomId, `No member found with ID: ${memberSlug}`);
                 }
             } else {
                 const subCmd = parts[1]?.toLowerCase();
@@ -423,6 +464,9 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
     // --- Janitor Logic (Proxying) ---
     const system = await proxyCache.getSystemRules(sender, prismaClient);
     if (!system) return;
+
+    // Escape hatch for autoproxy/proxying
+    if (body.startsWith("\\")) return;
 
     for (const member of system.members) {
         const tags = member.proxyTags as any[];
@@ -465,6 +509,49 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                 } catch (e) {}
                 return;
             }
+        }
+    }
+
+    // --- Autoproxy Fallback ---
+    if (system.autoproxyId) {
+        const autoMember = system.members.find(m => m.id === system.autoproxyId);
+        if (autoMember) {
+            const cleanContent = body.trim();
+            if (!cleanContent) return;
+
+            console.log(`[Janitor] Autoproxying for ${autoMember.name} in ${roomId}`);
+            
+            await safeRedact(bridgeInstance, roomId, eventId, "PluralAutoproxy");
+            if (isEdit && originalEventId !== eventId) {
+                await safeRedact(bridgeInstance, roomId, originalEventId, "PluralAutoproxyOriginal");
+            }
+            
+            try {
+                const ghostUserId = `@_plural_${system.slug}_${autoMember.slug}:${DOMAIN}`;
+                const intent = bridgeInstance.getIntent(ghostUserId);
+                const finalDisplayName = system.systemTag ? `${autoMember.displayName || autoMember.name} ${system.systemTag}` : (autoMember.displayName || autoMember.name);
+
+                await intent.ensureRegistered();
+                try { await intent.join(roomId); } catch (e) {
+                    try { await bridgeInstance.getIntent().invite(roomId, ghostUserId); await intent.join(roomId); } catch (e2) {}
+                }
+
+                // Ensure ghost device is registered
+                const machine = await cryptoManager.getMachine(ghostUserId);
+                await registerDevice(intent, machine.deviceId.toString());
+
+                try { await intent.setDisplayName(finalDisplayName); if (autoMember.avatarUrl) await intent.setAvatarUrl(autoMember.avatarUrl); } catch (e) {}
+
+                const payload: any = { msgtype: "m.text", body: cleanContent };
+                if (event.content["m.relates_to"]) {
+                    const relatesTo = { ...event.content["m.relates_to"] } as any;
+                    if (relatesTo.rel_type === "m.replace") { delete relatesTo.rel_type; delete relatesTo.event_id; }
+                    if (Object.keys(relatesTo).length > 0) payload["m.relates_to"] = relatesTo;
+                }
+
+                await sendEncryptedEvent(intent, roomId, "m.room.message", payload, cryptoManager, currentAsToken);
+            } catch (e) {}
+            return;
         }
     }
 };

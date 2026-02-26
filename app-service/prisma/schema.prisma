@@ -9,20 +9,23 @@ datasource db {
 }
 
 model System {
-  id        String   @id @default(uuid())
-  ownerId   String   @unique // The Matrix User ID (@user:server)
-  slug      String   @unique // Unique identifier for ghost user IDs (e.g. "chiara")
-  name      String?
-  systemTag String?  // The suffix tag (e.g. ⛩️ Seraphim ⛩️)
-  members   Member[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(uuid())
+  ownerId     String   @unique // The Matrix User ID (@user:server)
+  slug        String   @unique // Unique identifier for ghost user IDs (e.g. "chiara")
+  name        String?
+  systemTag   String?  // The suffix tag (e.g. ⛩️ Seraphim ⛩️)
+  autoproxyId String?
+  autoproxy   Member?  @relation("Autoproxy", fields: [autoproxyId], references: [id])
+  members     Member[] @relation("SystemMembers")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Member {
   id          String   @id @default(uuid())
   systemId    String
-  system      System   @relation(fields: [systemId], references: [id])
+  system      System   @relation("SystemMembers", fields: [systemId], references: [id], onDelete: Cascade)
+  autoproxiedSystems System[] @relation("Autoproxy")
   slug        String   // Name-based ID for commands (e.g. "lily")
   name        String
   displayName String?

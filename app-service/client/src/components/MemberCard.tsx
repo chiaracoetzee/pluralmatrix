@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { User, MessageSquare, Info, Trash2, Edit3 } from 'lucide-react';
+import { User, MessageSquare, Info, Trash2, Edit3, Star } from 'lucide-react';
 import { getAvatarUrl } from '../utils/matrix';
 
 interface Member {
@@ -17,17 +17,19 @@ interface Member {
 
 interface MemberCardProps {
     member: Member;
+    isAutoproxy?: boolean;
     onEdit: (member: Member) => void;
     onDelete: (id: string) => void;
+    onToggleAutoproxy?: (id: string) => void;
 }
 
-const MemberCard: React.FC<MemberCardProps> = ({ member, onEdit, onDelete }) => {
+const MemberCard: React.FC<MemberCardProps> = ({ member, isAutoproxy, onEdit, onDelete, onToggleAutoproxy }) => {
     return (
         <motion.div 
             layout
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="matrix-card group"
+            className={`matrix-card group ${isAutoproxy ? 'ring-2 ring-yellow-500/50 shadow-lg shadow-yellow-500/10' : ''}`}
         >
             <div 
                 className="h-2 w-full" 
@@ -50,7 +52,10 @@ const MemberCard: React.FC<MemberCardProps> = ({ member, onEdit, onDelete }) => 
                             )}
                         </div>
                         <div>
-                            <h3 className="text-xl font-bold">{member.displayName || member.name}</h3>
+                            <h3 className="text-xl font-bold flex items-center gap-2">
+                                {member.displayName || member.name}
+                                {isAutoproxy && <span className="bg-yellow-500/20 text-yellow-500 text-[10px] uppercase font-bold px-2 py-0.5 rounded flex items-center gap-1"><Star size={10} fill="currentColor"/> Autoproxy</span>}
+                            </h3>
                             <p className="text-matrix-muted text-xs font-mono">{member.slug}</p>
                             {member.pronouns && (
                                 <span className="text-xs px-2 py-0.5 rounded-full bg-matrix-primary/10 text-matrix-primary mt-1 inline-block">
@@ -60,6 +65,13 @@ const MemberCard: React.FC<MemberCardProps> = ({ member, onEdit, onDelete }) => 
                         </div>
                     </div>
                     <div className="flex flex-col space-y-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                            onClick={() => onToggleAutoproxy?.(member.id)}
+                            className={`p-2 rounded-lg transition-colors ${isAutoproxy ? 'bg-yellow-500/20 text-yellow-500 hover:bg-yellow-500/30' : 'hover:bg-white/5 text-matrix-muted hover:text-yellow-500'}`}
+                            title={isAutoproxy ? "Disable Autoproxy" : "Set as Autoproxy"}
+                        >
+                            <Star size={18} fill={isAutoproxy ? "currentColor" : "none"} />
+                        </button>
                         <button 
                             onClick={() => onEdit(member)}
                             className="p-2 hover:bg-white/5 rounded-lg text-matrix-muted hover:text-white transition-colors"

@@ -99,6 +99,7 @@ export class TransactionRouter {
                 const clearEvent = JSON.parse(decrypted.event);
                 clearEvent.room_id = event.room_id;
                 clearEvent.event_id = event.event_id;
+                clearEvent.sender = event.sender;
                 await this.onDecryptedEvent(clearEvent);
             }
         } catch (e) {
