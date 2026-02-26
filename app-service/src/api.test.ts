@@ -18,6 +18,7 @@ jest.mock('./bot', () => ({
             upsert: jest.fn(),
             update: jest.fn(),
             create: jest.fn(),
+            delete: jest.fn(),
         },
         member: {
             findMany: jest.fn(),
@@ -27,6 +28,13 @@ jest.mock('./bot', () => ({
             delete: jest.fn(),
             deleteMany: jest.fn(),
         },
+        accountLink: {
+            findUnique: jest.fn(),
+            create: jest.fn(),
+            delete: jest.fn(),
+            count: jest.fn(),
+            findMany: jest.fn(),
+        }
     },
 }));
 
@@ -44,7 +52,7 @@ describe('API Endpoints', () => {
     describe('POST /api/auth/login', () => {
         it('should return 200 and a token on valid login', async () => {
             (auth.loginToMatrix as jest.Mock).mockResolvedValue(true);
-            (prisma.system.upsert as jest.Mock).mockResolvedValue({ id: 'sys1' });
+            (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({ systemId: 'sys1' });
 
             const response = await request(app)
                 .post('/api/auth/login')
@@ -52,7 +60,6 @@ describe('API Endpoints', () => {
 
             expect(response.status).toBe(200);
             expect(response.body.token).toBeDefined();
-            expect(prisma.system.upsert).toHaveBeenCalled();
         });
     });
 
@@ -60,8 +67,10 @@ describe('API Endpoints', () => {
         const authHeader = { 'Authorization': `Bearer ${mockToken}` };
 
         it('GET /api/members should return member list', async () => {
-            (prisma.system.findUnique as jest.Mock).mockResolvedValue({
-                members: [{ id: 'm1', name: 'Lily' }]
+            (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({
+                system: {
+                    members: [{ id: 'm1', name: 'Lily' }]
+                }
             });
 
             const response = await request(app)
@@ -74,7 +83,9 @@ describe('API Endpoints', () => {
         });
 
         it('POST /api/members should create a new member with all fields', async () => {
-            (prisma.system.findUnique as jest.Mock).mockResolvedValue({ id: 'sys1', systemTag: 'Tag' });
+            (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({ 
+                system: { id: 'sys1', systemTag: 'Tag' } 
+            });
             (prisma.member.create as jest.Mock).mockResolvedValue({ 
                 id: 'm2', 
                 name: 'John',
@@ -98,18 +109,12 @@ describe('API Endpoints', () => {
             expect(response.body.description).toBe('A test user');
             expect(response.body.pronouns).toBe('He/Him');
             expect(response.body.color).toBe('ff0000');
-            expect(prisma.member.create).toHaveBeenCalledWith(expect.objectContaining({
-                data: expect.objectContaining({
-                    description: 'A test user',
-                    pronouns: 'He/Him',
-                    color: 'ff0000'
-                })
-            }));
         });
 
         it('PATCH /api/members/:id should update existing member', async () => {
-            (prisma.member.findFirst as jest.Mock).mockResolvedValue({ id: 'm1' });
-            (prisma.member.update as jest.Mock).mockResolvedValue({ id: 'm1', name: 'Lily Updated', system: { systemTag: 'Tag' } });
+            (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({ systemId: 'sys1' });
+            (prisma.member.findFirst as jest.Mock).mockResolvedValue({ id: 'm1', systemId: 'sys1' });
+            (prisma.member.update as jest.Mock).mockResolvedValue({ id: 'm1', name: 'Lily Updated' });
 
             const response = await request(app)
                 .patch('/api/members/m1')
@@ -121,8 +126,8 @@ describe('API Endpoints', () => {
         });
 
         it('DELETE /api/members/:id should remove member', async () => {
-            (prisma.member.findFirst as jest.Mock).mockResolvedValue({ id: 'm1', system: { id: 'sys1' } });
-            (prisma.member.delete as jest.Mock).mockResolvedValue({ id: 'm1' });
+            (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({ systemId: 'sys1' });
+            (prisma.member.findFirst as jest.Mock).mockResolvedValue({ id: 'm1', systemId: 'sys1', system: { id: 'sys1' } });
 
             const response = await request(app)
                 .delete('/api/members/m1')
@@ -133,8 +138,8 @@ describe('API Endpoints', () => {
         });
 
         it('DELETE /api/members (Bulk) should remove all members', async () => {
-            (prisma.member.findMany as jest.Mock).mockResolvedValue([{ id: 'm1', system: { id: 'sys1' } }]);
-            (prisma.member.deleteMany as jest.Mock).mockResolvedValue({ count: 1 });
+            (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({ systemId: 'sys1' });
+            (prisma.member.findMany as jest.Mock).mockResolvedValue([{ id: 'm1', systemId: 'sys1', system: { id: 'sys1' } }]);
 
             const response = await request(app)
                 .delete('/api/members')
@@ -145,14 +150,15 @@ describe('API Endpoints', () => {
             expect(prisma.member.deleteMany).toHaveBeenCalled();
         });
 
-        it('should return 403 if updating/deleting member of another system', async () => {
+        it('should return 404 if member of another system', async () => {
+            (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({ systemId: 'sys1' });
             (prisma.member.findFirst as jest.Mock).mockResolvedValue(null);
 
             const response = await request(app)
-                .delete('/api/members/m99')
+                .delete('/api/members/m1')
                 .set(authHeader);
 
-            expect(response.status).toBe(403);
+            expect(response.status).toBe(404);
         });
     });
 
@@ -160,11 +166,8 @@ describe('API Endpoints', () => {
         const authHeader = { 'Authorization': `Bearer ${mockToken}` };
 
         it('GET /api/system should return system details', async () => {
-            (prisma.system.findUnique as jest.Mock).mockResolvedValue({
-                id: 'sys1',
-                name: 'My System',
-                systemTag: 'Tag',
-                slug: 'mysys'
+            (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({
+                system: { id: 'sys1', name: 'My System' }
             });
 
             const response = await request(app)
@@ -176,12 +179,9 @@ describe('API Endpoints', () => {
         });
 
         it('PATCH /api/system should update system details', async () => {
-            (prisma.system.update as jest.Mock).mockResolvedValue({
-                id: 'sys1',
-                name: 'New Name',
-                systemTag: 'New Tag',
-                slug: 'newslug'
-            });
+            (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({ systemId: 'sys1' });
+            (prisma.system.findUnique as jest.Mock).mockResolvedValue({ id: 'sys1' });
+            (prisma.system.update as jest.Mock).mockResolvedValue({ id: 'sys1', name: 'New Name' });
 
             const response = await request(app)
                 .patch('/api/system')

@@ -5,6 +5,7 @@ import * as fs from "fs";
 import { marked } from "marked";
 import { proxyCache } from "./services/cache";
 import { emitSystemUpdate } from "./services/events";
+import { ensureUniqueSlug } from "./utils/slug";
 import { OlmMachineManager } from "./crypto/OlmMachineManager";
 import { TransactionRouter } from "./crypto/TransactionRouter";
 import { DeviceLists, UserId, RoomId } from "@matrix-org/matrix-sdk-crypto-nodejs";
@@ -308,6 +309,27 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
         const parts = body.split(" ");
         const cmd = parts[0].substring(3).toLowerCase();
 
+        // Helper to ensure sender has a system
+        const getOrCreateSenderSystem = async () => {
+            const system = await proxyCache.getSystemRules(sender, prismaClient);
+            if (system) return system;
+
+            const localpart = sender.split(':')[0].substring(1);
+            const slug = await ensureUniqueSlug(prismaClient, localpart);
+            const newSystem = await prismaClient.system.create({
+                data: {
+                    slug,
+                    name: `${localpart}'s System`,
+                    accountLinks: {
+                        create: { matrixId: sender }
+                    }
+                },
+                include: { members: true }
+            });
+            proxyCache.invalidate(sender);
+            return newSystem;
+        };
+
         if (cmd === "list") {
             const system = await proxyCache.getSystemRules(sender, prismaClient);
             if (!system || system.members.length === 0) {
@@ -322,6 +344,94 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                 return `* **${m.name}** - ${display} (id: \`${m.slug}\`)`;
             }).join("\n");
             await sendRichText(bridgeInstance.getIntent(), roomId, `### ${system.name || "Your System"} Members\n${memberList}`);
+            return;
+        }
+
+        if (cmd === "link" && parts[1]) {
+            const system = await getOrCreateSenderSystem();
+            let targetMxid = parts[1].toLowerCase();
+            if (!targetMxid.startsWith("@")) targetMxid = `@${targetMxid}`;
+            if (!targetMxid.includes(":")) {
+                const domain = sender.split(":")[1];
+                targetMxid = `${targetMxid}:${domain}`;
+            }
+
+            if (targetMxid === sender) {
+                await sendEncryptedText(bridgeInstance.getIntent(), roomId, "You are already linked to this system.");
+                return;
+            }
+
+            // Check if target is already linked somewhere
+            const targetLink = await prismaClient.accountLink.findUnique({
+                where: { matrixId: targetMxid },
+                include: { system: { include: { members: true, accountLinks: true } } }
+            });
+
+            if (targetLink) {
+                if (targetLink.systemId === system.id) {
+                    await sendRichText(bridgeInstance.getIntent(), roomId, `**${targetMxid}** is already linked to this system.`);
+                    return;
+                }
+
+                if (targetLink.system.members.length > 0) {
+                    await sendRichText(bridgeInstance.getIntent(), roomId, `**${targetMxid}** already belongs to a system with members. You must unlink it or delete its members first.`);
+                    return;
+                }
+
+                // Safe to merge: delete their old system if they were the only link
+                if (targetLink.system.accountLinks.length === 1) {
+                    await prismaClient.system.delete({ where: { id: targetLink.systemId } });
+                } else {
+                    await prismaClient.accountLink.delete({ where: { matrixId: targetMxid } });
+                }
+            }
+
+            // Create new link
+            await prismaClient.accountLink.create({
+                data: { matrixId: targetMxid, systemId: system.id }
+            });
+
+            proxyCache.invalidate(targetMxid);
+            emitSystemUpdate(targetMxid);
+            await sendRichText(bridgeInstance.getIntent(), roomId, `Successfully linked **${targetMxid}** to this system.`);
+            return;
+        }
+
+        if (cmd === "unlink") {
+            const system = await proxyCache.getSystemRules(sender, prismaClient);
+            if (!system) return;
+
+            let targetMxid = parts[1]?.toLowerCase();
+            if (targetMxid) {
+                if (!targetMxid.startsWith("@")) targetMxid = `@${targetMxid}`;
+                if (!targetMxid.includes(":")) targetMxid = `${targetMxid}:${sender.split(":")[1]}`;
+            } else {
+                targetMxid = sender;
+            }
+
+            const link = await prismaClient.accountLink.findUnique({
+                where: { matrixId: targetMxid }
+            });
+
+            if (!link || link.systemId !== system.id) {
+                await sendRichText(bridgeInstance.getIntent(), roomId, `**${targetMxid}** is not linked to this system.`);
+                return;
+            }
+
+            await prismaClient.accountLink.delete({ where: { matrixId: targetMxid } });
+            
+            // Cleanup system if no links remain
+            const remainingLinks = await prismaClient.accountLink.count({
+                where: { systemId: system.id }
+            });
+
+            if (remainingLinks === 0) {
+                await prismaClient.system.delete({ where: { id: system.id } });
+            }
+
+            proxyCache.invalidate(targetMxid);
+            emitSystemUpdate(targetMxid);
+            await sendRichText(bridgeInstance.getIntent(), roomId, `Successfully unlinked **${targetMxid}** from this system.`);
             return;
         }
 

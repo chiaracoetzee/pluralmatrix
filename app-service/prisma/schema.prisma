@@ -10,15 +10,21 @@ datasource db {
 
 model System {
   id          String   @id @default(uuid())
-  ownerId     String   @unique // The Matrix User ID (@user:server)
   slug        String   @unique // Unique identifier for ghost user IDs (e.g. "chiara")
   name        String?
   systemTag   String?  // The suffix tag (e.g. ⛩️ Seraphim ⛩️)
   autoproxyId String?
   autoproxy   Member?  @relation("Autoproxy", fields: [autoproxyId], references: [id])
   members     Member[] @relation("SystemMembers")
+  accountLinks AccountLink[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model AccountLink {
+  matrixId String @id // The full Matrix Identifier (@user:domain)
+  systemId String
+  system   System @relation(fields: [systemId], references: [id], onDelete: Cascade)
 }
 
 model Member {

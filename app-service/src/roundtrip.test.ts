@@ -33,18 +33,35 @@ jest.mock('./bot', () => ({
         system: {
             upsert: jest.fn(),
             findUnique: jest.fn(),
+            create: jest.fn(),
+            update: jest.fn(),
         },
         member: {
             upsert: jest.fn(),
             findMany: jest.fn(),
             update: jest.fn(),
+            create: jest.fn(),
         },
+        accountLink: {
+            findUnique: jest.fn(),
+            create: jest.fn(),
+        }
     },
 }));
 
 describe('PluralKit Roundtrip', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        // Mock fetch for avatar migration globally
+        global.fetch = jest.fn().mockImplementation((url) => {
+            return Promise.resolve({
+                ok: true,
+                headers: {
+                    get: (name: string) => name.toLowerCase() === 'content-type' ? 'image/png' : null
+                },
+                arrayBuffer: () => Promise.resolve(new Uint8Array(Buffer.from('fake-image-binary-data-123')).buffer)
+            });
+        });
     });
 
     it('should import and then export with consistent data', async () => {
@@ -67,12 +84,14 @@ describe('PluralKit Roundtrip', () => {
             ]
         };
 
-        // Capture what is "saved" during import
         let savedSystem: any;
         let savedMembers: any[] = [];
 
-        (prisma.system.upsert as jest.Mock).mockImplementation((args) => {
-            savedSystem = { ...args.create, createdAt: new Date() };
+        (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue(null);
+        (prisma.system.findUnique as jest.Mock).mockResolvedValue(null);
+
+        (prisma.system.create as jest.Mock).mockImplementation((args) => {
+            savedSystem = { ...args.data, id: 'sys-uuid', createdAt: new Date() };
             return Promise.resolve(savedSystem);
         });
 
@@ -86,9 +105,11 @@ describe('PluralKit Roundtrip', () => {
         await importFromPluralKit('@user:localhost', mockPkData);
 
         // 2. Setup mock for Export
-        (prisma.system.findUnique as jest.Mock).mockResolvedValue({
-            ...savedSystem,
-            members: savedMembers
+        (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({
+            system: {
+                ...savedSystem,
+                members: savedMembers
+            }
         });
 
         // 3. Run Export
@@ -132,8 +153,11 @@ describe('PluralKit Roundtrip', () => {
         let savedSystem: any;
         let savedMembers: any[] = [];
 
-        (prisma.system.upsert as jest.Mock).mockImplementation((args) => {
-            savedSystem = { ...args.create, id: 'sys-uuid', createdAt: new Date() };
+        (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue(null);
+        (prisma.system.findUnique as jest.Mock).mockResolvedValue(null);
+
+        (prisma.system.create as jest.Mock).mockImplementation((args) => {
+            savedSystem = { ...args.data, id: 'sys-uuid', createdAt: new Date() };
             return Promise.resolve(savedSystem);
         });
 
@@ -151,9 +175,11 @@ describe('PluralKit Roundtrip', () => {
         expect(savedMembers[0].slug).toBe(longSlug);
 
         // 2. Setup mock for Export
-        (prisma.system.findUnique as jest.Mock).mockResolvedValue({
-            ...savedSystem,
-            members: savedMembers
+        (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({
+            system: {
+                ...savedSystem,
+                members: savedMembers
+            }
         });
 
         // 3. Run Export
@@ -185,33 +211,26 @@ describe('PluralKit Roundtrip', () => {
         it('should export avatars to a ZIP stream with correct data', async () => {
             const fakeImageData = Buffer.from('fake-image-binary-data-123');
             const mockSystem = {
-                ownerId: '@user:localhost',
+                id: 'sys1',
                 members: [
                     { name: 'Alice', slug: 'alice', avatarUrl: 'mxc://localhost/media1' }
                 ]
             };
-            (prisma.system.findUnique as jest.Mock).mockResolvedValue(mockSystem);
+            (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({ system: mockSystem });
 
-            // Mock fetch for the media download
-            // We ensure we return a proper ArrayBuffer matching the buffer content
-            global.fetch = jest.fn().mockResolvedValue({
-                ok: true,
-                headers: new Map([['content-type', 'image/png']]),
-                arrayBuffer: () => Promise.resolve(new Uint8Array(fakeImageData).buffer)
-            });
-
-            const zipStream = new PassThrough();
             const chunks: any[] = [];
+            const zipStream = new PassThrough();
             zipStream.on('data', (chunk) => chunks.push(chunk));
-
-            const exportPromise = exportAvatarsZip('@user:localhost', zipStream);
             
-            // Wait for the stream to finish properly
-            await new Promise((resolve) => zipStream.on('finish', resolve));
-            await exportPromise;
+            // Wait for both the function to finish AND the stream to emit 'end'
+            const [buffer] = await Promise.all([
+                new Promise<Buffer>((resolve) => {
+                    zipStream.on('end', () => resolve(Buffer.concat(chunks)));
+                }),
+                exportAvatarsZip('@user:localhost', zipStream)
+            ]);
 
-            const zipBuffer = Buffer.concat(chunks);
-            const zip = new AdmZip(zipBuffer);
+            const zip = new AdmZip(buffer);
             const entries = zip.getEntries();
 
             expect(entries).toHaveLength(1);
@@ -229,7 +248,7 @@ describe('PluralKit Roundtrip', () => {
                     { id: 'm1', slug: 'alice', name: 'Alice', avatarUrl: 'mxc://old/media1' }
                 ]
             };
-            (prisma.system.findUnique as jest.Mock).mockResolvedValue(mockSystem);
+            (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({ system: mockSystem });
             (prisma.member.update as jest.Mock).mockResolvedValue({ 
                 id: 'm1', 
                 slug: 'alice', 

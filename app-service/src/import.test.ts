@@ -15,8 +15,9 @@ const mockBridge = {
 jest.mock('./bot', () => ({
     getBridge: jest.fn(() => mockBridge),
     prisma: {
-        system: { upsert: jest.fn(), findUnique: jest.fn() },
-        member: { upsert: jest.fn(), findMany: jest.fn() }
+        system: { upsert: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+        member: { upsert: jest.fn(), findMany: jest.fn() },
+        accountLink: { findUnique: jest.fn() }
     }
 }));
 
@@ -102,7 +103,7 @@ describe('Importer Logic', () => {
             };
 
             const { prisma } = require('./bot');
-            (prisma.system.findUnique as jest.Mock).mockResolvedValue(mockSystem);
+            (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({ system: mockSystem });
 
             const { exportToPluralKit } = require('./import');
             const result = await exportToPluralKit('@user:localhost');

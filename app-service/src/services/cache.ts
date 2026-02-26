@@ -42,10 +42,16 @@ export class ProxyCacheService {
     }
 
     private async fetchAndCache(mxid: string, prisma: PrismaClient): Promise<CachedSystem | null> {
-        const system = await prisma.system.findUnique({
-            where: { ownerId: mxid },
-            include: { members: true }
+        const link = await prisma.accountLink.findUnique({
+            where: { matrixId: mxid },
+            include: { 
+                system: {
+                    include: { members: true }
+                }
+            }
         });
+
+        const system = link?.system || null;
 
         // We store the result (even if null) to prevent hammering DB for non-existent users
         this.cache.set(mxid, {

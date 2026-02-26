@@ -50,6 +50,9 @@ export const memberService = {
 export const systemService = {
     get: () => api.get('/system'),
     update: (data: any) => api.patch('/system', data),
+    getLinks: () => api.get('/system/links'),
+    createLink: (targetMxid: string) => api.post('/system/links', { targetMxid }),
+    deleteLink: (mxid: string) => api.delete(`/system/links/${encodeURIComponent(mxid)}`),
 };
 
 export default api;

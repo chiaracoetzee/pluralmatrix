@@ -8,11 +8,11 @@ import { syncGhostProfile, decommissionGhost } from '../import';
 export const listMembers = async (req: AuthRequest, res: Response) => {
     try {
         const mxid = req.user!.mxid;
-        const system = await prisma.system.findUnique({
-            where: { ownerId: mxid },
-            include: { members: true }
+        const link = await prisma.accountLink.findUnique({
+            where: { matrixId: mxid },
+            include: { system: { include: { members: true } } }
         });
-        res.json(system?.members || []);
+        res.json(link?.system?.members || []);
     } catch (e) {
         res.status(500).json({ error: 'Failed to fetch members' });
     }
@@ -23,8 +23,12 @@ export const createMember = async (req: AuthRequest, res: Response) => {
         const mxid = req.user!.mxid;
         const { name, displayName, avatarUrl, proxyTags, slug: providedSlug, description, pronouns, color } = MemberSchema.parse(req.body);
 
-        const system = await prisma.system.findUnique({ where: { ownerId: mxid } });
-        if (!system) return res.status(404).json({ error: 'System not found' });
+        const link = await prisma.accountLink.findUnique({ 
+            where: { matrixId: mxid },
+            include: { system: true }
+        });
+        if (!link) return res.status(404).json({ error: 'System not found' });
+        const system = link.system;
 
         const baseSlug = providedSlug || name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
         const slug = providedSlug ? baseSlug : `${baseSlug}-${Date.now()}`;
@@ -60,10 +64,15 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
         const id = req.params.id as string;
         const updateData = MemberSchema.partial().parse(req.body);
 
-        const member = await prisma.member.findFirst({
-            where: { id, system: { ownerId: mxid } }
+        const link = await prisma.accountLink.findUnique({
+            where: { matrixId: mxid }
         });
-        if (!member) return res.status(403).json({ error: 'Unauthorized or not found' });
+        if (!link) return res.status(403).json({ error: 'Forbidden' });
+
+        const member = await prisma.member.findFirst({
+            where: { id, systemId: link.systemId }
+        });
+        if (!member) return res.status(404).json({ error: 'Member not found' });
 
         const updated = await prisma.member.update({
             where: { id },
@@ -86,11 +95,16 @@ export const deleteMember = async (req: AuthRequest, res: Response) => {
         const mxid = req.user!.mxid;
         const id = req.params.id as string;
 
+        const link = await prisma.accountLink.findUnique({
+            where: { matrixId: mxid }
+        });
+        if (!link) return res.status(403).json({ error: 'Forbidden' });
+
         const member = await prisma.member.findFirst({
-            where: { id, system: { ownerId: mxid } },
+            where: { id, systemId: link.systemId },
             include: { system: true }
         });
-        if (!member) return res.status(403).json({ error: 'Unauthorized or not found' });
+        if (!member) return res.status(404).json({ error: 'Member not found' });
 
         // Cleanup Matrix state (Async)
         decommissionGhost(member, member.system);
@@ -107,9 +121,14 @@ export const deleteAllMembers = async (req: AuthRequest, res: Response) => {
     try {
         const mxid = req.user!.mxid;
         
+        const link = await prisma.accountLink.findUnique({
+            where: { matrixId: mxid }
+        });
+        if (!link) return res.status(403).json({ error: 'Forbidden' });
+
         // Find all members to decommission their ghosts first
         const members = await prisma.member.findMany({
-            where: { system: { ownerId: mxid } },
+            where: { systemId: link.systemId },
             include: { system: true }
         });
 
@@ -118,7 +137,7 @@ export const deleteAllMembers = async (req: AuthRequest, res: Response) => {
         }
 
         await prisma.member.deleteMany({
-            where: { system: { ownerId: mxid } }
+            where: { systemId: link.systemId }
         });
         proxyCache.invalidate(mxid);
         res.json({ success: true });

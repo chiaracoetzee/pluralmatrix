@@ -8,6 +8,9 @@ router.use(authenticateToken);
 
 router.get('/', systemController.getSystem);
 router.get('/events', systemController.streamSystemEvents);
+router.get('/links', systemController.getLinks);
+router.post('/links', systemController.createLink);
+router.delete('/links/:mxid', systemController.deleteLink);
 router.patch('/', systemController.updateSystem);
 
 export default router;

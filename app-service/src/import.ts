@@ -164,6 +164,8 @@ export const decommissionGhost = async (member: any, system: any) => {
     }
 };
 
+import { ensureUniqueSlug } from './utils/slug';
+
 /**
  * Main importer logic for PluralKit JSON.
  */
@@ -173,25 +175,49 @@ export const importFromPluralKit = async (mxid: string, jsonData: any) => {
     const isPluralMatrix = jsonData.config?.pluralmatrix_version !== undefined;
     const localpart = mxid.split(':')[0].substring(1);
     
-    // If it's a PluralMatrix export, reuse the exact system slug provided
-    const systemSlug = (isPluralMatrix && jsonData.id) 
-        ? jsonData.id 
-        : generateSlug(jsonData.name || localpart, localpart);
-
-    const system = await prisma.system.upsert({
-        where: { ownerId: mxid },
-        update: {
-            name: jsonData.name,
-            systemTag: jsonData.tag,
-            slug: systemSlug
-        },
-        create: {
-            ownerId: mxid,
-            slug: systemSlug,
-            name: jsonData.name,
-            systemTag: jsonData.tag
-        }
+    const link = await prisma.accountLink.findUnique({
+        where: { matrixId: mxid },
+        include: { system: true }
     });
+
+    let system;
+    if (link) {
+        system = link.system;
+        // Update existing system
+        let systemSlug = (isPluralMatrix && jsonData.id) ? jsonData.id : system.slug;
+        
+        // If slug changed, ensure uniqueness
+        if (systemSlug !== system.slug) {
+            systemSlug = await ensureUniqueSlug(prisma, systemSlug, system.id);
+        }
+
+        system = await prisma.system.update({
+            where: { id: system.id },
+            data: {
+                name: jsonData.name,
+                systemTag: jsonData.tag,
+                slug: systemSlug
+            }
+        });
+    } else {
+        // Create new system and link
+        let baseSlug = (isPluralMatrix && jsonData.id) 
+            ? jsonData.id 
+            : generateSlug(jsonData.name || localpart, localpart);
+        
+        const systemSlug = await ensureUniqueSlug(prisma, baseSlug);
+
+        system = await prisma.system.create({
+            data: {
+                slug: systemSlug,
+                name: jsonData.name || `${localpart}'s System`,
+                systemTag: jsonData.tag,
+                accountLinks: {
+                    create: { matrixId: mxid }
+                }
+            }
+        });
+    }
 
     const rawMembers = jsonData.members || [];
     const slugGroups: Record<string, any[]> = {};
@@ -309,12 +335,17 @@ export const stringifyWithEscapedUnicode = (obj: any): string => {
  * Generates a PluralKit-compatible JSON export for a system.
  */
 export const exportToPluralKit = async (mxid: string) => {
-    const system = await prisma.system.findUnique({
-        where: { ownerId: mxid },
-        include: { members: true }
+    const link = await prisma.accountLink.findUnique({
+        where: { matrixId: mxid },
+        include: { 
+            system: {
+                include: { members: true }
+            }
+        }
     });
 
-    if (!system) return null;
+    if (!link) return null;
+    const system = link.system;
 
     const pkExport = {
         version: 2,
@@ -402,12 +433,17 @@ export const exportToPluralKit = async (mxid: string) => {
  * Fetches all member avatars and bundles them into a ZIP file.
  */
 export const exportAvatarsZip = async (mxid: string, stream: NodeJS.WritableStream) => {
-    const system = await prisma.system.findUnique({
-        where: { ownerId: mxid },
-        include: { members: true }
+    const link = await prisma.accountLink.findUnique({
+        where: { matrixId: mxid },
+        include: { 
+            system: {
+                include: { members: true }
+            }
+        }
     });
 
-    if (!system) throw new Error("System not found");
+    if (!link) throw new Error("System not found");
+    const system = link.system;
 
     const archive = archiver('zip', { zlib: { level: 9 } });
     archive.pipe(stream);
@@ -455,12 +491,17 @@ export const exportAvatarsZip = async (mxid: string, stream: NodeJS.WritableStre
  * Imports a ZIP of avatars and updates member mappings.
  */
 export const importAvatarsZip = async (mxid: string, zipBuffer: Buffer) => {
-    const system = await prisma.system.findUnique({
-        where: { ownerId: mxid },
-        include: { members: true }
+    const link = await prisma.accountLink.findUnique({
+        where: { matrixId: mxid },
+        include: { 
+            system: {
+                include: { members: true }
+            }
+        }
     });
 
-    if (!system) throw new Error("System not found");
+    if (!link) throw new Error("System not found");
+    const system = link.system;
 
     const zip = new AdmZip(zipBuffer);
     const entries = zip.getEntries();
