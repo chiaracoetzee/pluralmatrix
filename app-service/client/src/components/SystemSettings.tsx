@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, Settings, Hash, Link as LinkIcon, Trash2, Plus, AlertCircle } from 'lucide-react';
 import { systemService } from '../services/api';
+import { useAuth } from '../hooks/useAuth';
 
 interface SystemSettingsProps {
     onSave: () => void;
@@ -8,6 +9,7 @@ interface SystemSettingsProps {
 }
 
 const SystemSettings: React.FC<SystemSettingsProps> = ({ onSave, onCancel }) => {
+    const { user } = useAuth();
     const [formData, setFormData] = useState({
         name: '',
         systemTag: '',
@@ -76,19 +78,17 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ onSave, onCancel }) => 
     };
 
     const handleRemoveLink = async (mxid: string) => {
-        const msg = links.length === 1 
-            ? "⚠️ WARNING: This is the LAST account linked to this system. Unlinking it will PERMANENTLY DELETE the system and all its members. Are you absolutely sure?"
-            : `Are you sure you want to unlink ${mxid}?`;
+        // This case should theoretically not happen if the button is hidden, 
+        // but kept for defense-in-depth.
+        if (mxid.toLowerCase() === user?.mxid.toLowerCase()) {
+            alert("You cannot unlink your primary account.");
+            return;
+        }
 
-        if (confirm(msg)) {
+        if (confirm(`Are you sure you want to unlink ${mxid}?`)) {
             try {
                 await systemService.deleteLink(mxid);
-                if (links.length === 1) {
-                    // System deleted, logout or redirect
-                    window.location.reload();
-                } else {
-                    await fetchLinks();
-                }
+                await fetchLinks();
             } catch (err: any) {
                 alert(err.response?.data?.error || 'Failed to unlink account.');
             }
@@ -169,23 +169,28 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ onSave, onCancel }) => 
                         </h3>
 
                         <div className="space-y-3">
-                            {links.map((link) => (
-                                <div key={link.matrixId} className="flex items-center justify-between p-3 bg-matrix-dark/50 rounded-xl border border-white/5 group">
-                                    <div className="flex items-center space-x-3 overflow-hidden">
-                                        <div className="p-2 bg-matrix-primary/10 text-matrix-primary rounded-lg">
-                                            <LinkIcon size={14} />
+                            {links.map((link) => {
+                                const isSelf = link.matrixId.toLowerCase() === user?.mxid.toLowerCase();
+                                return (
+                                    <div key={link.matrixId} className="flex items-center justify-between p-3 bg-matrix-dark/50 rounded-xl border border-white/5 group">
+                                        <div className="flex items-center space-x-3 overflow-hidden">
+                                            <div className="p-2 bg-matrix-primary/10 text-matrix-primary rounded-lg">
+                                                <LinkIcon size={14} />
+                                            </div>
+                                            <span className="text-sm font-mono truncate">{link.matrixId}</span>
                                         </div>
-                                        <span className="text-sm font-mono truncate">{link.matrixId}</span>
+                                        {!isSelf && (
+                                            <button 
+                                                onClick={() => handleRemoveLink(link.matrixId)}
+                                                className="p-2 text-matrix-muted hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                                                title="Unlink Account"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        )}
                                     </div>
-                                    <button 
-                                        onClick={() => handleRemoveLink(link.matrixId)}
-                                        className="p-2 text-matrix-muted hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
-                                        title="Unlink Account"
-                                    >
-                                        <Trash2 size={16} />
-                                    </button>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
 
                         <form onSubmit={handleAddLink} className="space-y-3 pt-4 border-t border-white/5">

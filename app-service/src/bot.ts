@@ -347,7 +347,11 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
             return;
         }
 
-        if (cmd === "link" && parts[1]) {
+        if (cmd === "link") {
+            if (!parts[1]) {
+                await sendEncryptedText(bridgeInstance.getIntent(), roomId, "Usage: `pk;link <@user:domain>`");
+                return;
+            }
             const system = await getOrCreateSenderSystem();
             let targetMxid = parts[1].toLowerCase();
             if (!targetMxid.startsWith("@")) targetMxid = `@${targetMxid}`;
@@ -357,7 +361,7 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
             }
 
             if (targetMxid === sender) {
-                await sendEncryptedText(bridgeInstance.getIntent(), roomId, "You are already linked to this system.");
+                await sendRichText(bridgeInstance.getIntent(), roomId, "You are already linked to this system.");
                 return;
             }
 
@@ -398,15 +402,20 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
         }
 
         if (cmd === "unlink") {
+            if (!parts[1]) {
+                await sendEncryptedText(bridgeInstance.getIntent(), roomId, "Usage: `pk;unlink <@user:domain>`");
+                return;
+            }
             const system = await proxyCache.getSystemRules(sender, prismaClient);
             if (!system) return;
 
-            let targetMxid = parts[1]?.toLowerCase();
-            if (targetMxid) {
-                if (!targetMxid.startsWith("@")) targetMxid = `@${targetMxid}`;
-                if (!targetMxid.includes(":")) targetMxid = `${targetMxid}:${sender.split(":")[1]}`;
-            } else {
-                targetMxid = sender;
+            let targetMxid = parts[1].toLowerCase();
+            if (!targetMxid.startsWith("@")) targetMxid = `@${targetMxid}`;
+            if (!targetMxid.includes(":")) targetMxid = `${targetMxid}:${sender.split(":")[1]}`;
+
+            if (targetMxid === sender) {
+                await sendRichText(bridgeInstance.getIntent(), roomId, "You cannot unlink your own primary account from the system.");
+                return;
             }
 
             const link = await prismaClient.accountLink.findUnique({
@@ -420,7 +429,7 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
 
             await prismaClient.accountLink.delete({ where: { matrixId: targetMxid } });
             
-            // Cleanup system if no links remain
+            // Cleanup system if no links remain (shouldn't happen here since targetMxid !== sender)
             const remainingLinks = await prismaClient.accountLink.count({
                 where: { systemId: system.id }
             });

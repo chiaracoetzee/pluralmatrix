@@ -195,6 +195,10 @@ export const deleteLink = async (req: AuthRequest, res: Response) => {
         const mxid = req.user!.mxid;
         const targetMxid = (req.params.mxid as string).toLowerCase();
 
+        if (targetMxid === mxid.toLowerCase()) {
+            return res.status(400).json({ error: 'You cannot unlink your own account.' });
+        }
+
         const link = await prisma.accountLink.findUnique({
             where: { matrixId: mxid }
         });

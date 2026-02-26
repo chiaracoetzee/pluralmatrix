@@ -618,22 +618,73 @@ describe('Bot Commands Resolution Tests', () => {
                     event_id: "$cmd_event",
                     room_id: roomId,
                     sender: sender,
-                    content: { body: "pk;unlink" }
+                    content: { body: "pk;unlink @bob:localhost" }
                 }
             });
 
             const { proxyCache } = require('./services/cache');
             proxyCache.getSystemRules.mockResolvedValue({ id: "s1", members: [] });
 
-            prisma.accountLink.findUnique = jest.fn().mockResolvedValue({ matrixId: sender, systemId: "s1" });
+            prisma.accountLink.findUnique = jest.fn().mockResolvedValue({ matrixId: "@bob:localhost", systemId: "s1" });
             prisma.accountLink.delete = jest.fn();
             prisma.accountLink.count = jest.fn().mockResolvedValue(0);
             prisma.system.delete = jest.fn();
 
             await handleEvent(req as any, undefined, mockBridge as any, prisma, false, "mock_token");
 
-            expect(prisma.accountLink.delete).toHaveBeenCalledWith({ where: { matrixId: sender } });
+            expect(prisma.accountLink.delete).toHaveBeenCalledWith({ where: { matrixId: "@bob:localhost" } });
             expect(prisma.system.delete).toHaveBeenCalledWith({ where: { id: "s1" } });
+        });
+
+        it('pk;unlink should prevent self-unlinking', async () => {
+            const req = new Request({
+                data: {
+                    type: "m.room.message",
+                    event_id: "$cmd_event",
+                    room_id: roomId,
+                    sender: sender,
+                    content: { body: `pk;unlink ${sender}` }
+                }
+            });
+
+            const { proxyCache } = require('./services/cache');
+            proxyCache.getSystemRules.mockResolvedValue({ id: "s1", members: [] });
+
+            await handleEvent(req as any, undefined, mockBridge as any, prisma, false, "mock_token");
+
+            const { sendEncryptedEvent } = require('./crypto/encryption');
+            expect(sendEncryptedEvent).toHaveBeenCalledWith(
+                expect.anything(),
+                roomId,
+                "m.room.message",
+                expect.objectContaining({ body: expect.stringContaining("cannot unlink your own primary account") }),
+                expect.anything(),
+                expect.anything()
+            );
+        });
+
+        it('pk;link should show usage error if no argument', async () => {
+            const req = new Request({
+                data: {
+                    type: "m.room.message",
+                    event_id: "$cmd_event",
+                    room_id: roomId,
+                    sender: sender,
+                    content: { body: "pk;link" }
+                }
+            });
+
+            await handleEvent(req as any, undefined, mockBridge as any, prisma, false, "mock_token");
+
+            const { sendEncryptedEvent } = require('./crypto/encryption');
+            expect(sendEncryptedEvent).toHaveBeenCalledWith(
+                expect.anything(),
+                roomId,
+                "m.room.message",
+                expect.objectContaining({ body: expect.stringContaining("Usage: `pk;link") }),
+                expect.anything(),
+                expect.anything()
+            );
         });
     });
 });
