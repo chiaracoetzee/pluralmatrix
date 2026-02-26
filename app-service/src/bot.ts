@@ -61,46 +61,99 @@ const getRoomMessages = async (botClient: any, roomId: string, limit: number = 5
 };
 
 /**
- * Robustly finds the latest proxied message for a system in a room.
- * In encrypted rooms, we target by sender and metadata without requiring decryption.
+ * Robustly resolves a target ghost message, finding its root ID and latest text.
+ * Handles both plaintext and encrypted messages, explicit reply targets, and chained edits.
  */
-const findLatestGhostMessage = async (bridgeInstance: Bridge, botClient: any, roomId: string, systemSlug: string) => {
+const resolveGhostMessage = async (bridgeInstance: Bridge, botClient: any, roomId: string, systemSlug: string, explicitTargetId?: string) => {
     const scrollback = await getRoomMessages(botClient, roomId, 50);
-    const botUserId = bridgeInstance.getBot().getUserId();
-    const machine = await cryptoManager.getMachine(botUserId);
     const rustRoomId = new RoomId(roomId);
 
     let targetRoot: any = null;
     let latestContent: any = null;
     const ghostPrefix = `@_plural_${systemSlug}_`;
 
-    // 1. Find the latest ROOT message (skipping replacements)
-    for (const e of scrollback.chunk) {
-        if (e.unsigned?.redacted_by) continue;
-        if (!e.sender.startsWith(ghostPrefix)) continue;
+    let rootId = explicitTargetId;
 
-        // Candidate types
-        const isEncrypted = e.type === "m.room.encrypted";
-        const isPlainMessage = e.type === "m.room.message";
-        if (!isEncrypted && !isPlainMessage) continue;
+    if (rootId) {
+        // Resolve explicit target (replyTo)
+        try {
+            let explicitEvent: any = null;
+            
+            try {
+                // First check if the target is already in our recent scrollback to avoid network/permission errors
+                explicitEvent = scrollback.chunk.find((e: any) => e.event_id === rootId || e.id === rootId);
+                if (!explicitEvent) {
+                    // Try fetching specifically via API if not in scrollback
+                    explicitEvent = await botClient.getEvent(roomId, rootId);
+                }
+            } catch (apiErr: any) {
+                // API fetch failed, explicitEvent will be null
+            }
 
-        // Check for replacement metadata (Visible thanks to hoisting)
-        const content = e.content || {};
-        const rel = content["m.relates_to"] || {};
-        const isReplacement = rel.rel_type === "m.replace";
+            if (!explicitEvent) return null;
+            
+            // Handle both class instances (from botClient.getEvent) and raw JSON (from scrollback)
+            const eventSender = explicitEvent.sender || (explicitEvent as any).sender;
+            const eventType = explicitEvent.type || (explicitEvent as any).type;
+            let content = explicitEvent.content || (explicitEvent as any).content || {};
+            
+            // Decrypt if encrypted to check for replacement metadata
+            if (eventType === "m.room.encrypted") {
+                try {
+                    const senderMachine = await cryptoManager.getMachine(eventSender);
+                    const decrypted = await senderMachine.decryptRoomEvent(JSON.stringify(explicitEvent), rustRoomId);
+                    if (decrypted.event) {
+                        content = JSON.parse(decrypted.event).content;
+                    }
+                } catch (err: any) {}
+            }
+            
+            const rel = content["m.relates_to"];
+            if (rel?.rel_type === "m.replace") {
+                rootId = rel.event_id || rel.id;
+            }
+            
+            targetRoot = { ...explicitEvent, sender: eventSender, type: eventType, content };
+            latestContent = content;
+            if (!eventSender || !eventSender.startsWith(ghostPrefix)) return null;
+        } catch (e: any) {
+            return null;
+        }
+    } else {
+        // Find the latest ROOT message in scrollback
+        for (const e of scrollback.chunk) {
+            if (e.unsigned?.redacted_by) continue;
+            if (!e.sender.startsWith(ghostPrefix)) continue;
 
-        if (!isReplacement) {
-            targetRoot = e;
-            latestContent = content; // Fallback
-            break;
+            const isEncrypted = e.type === "m.room.encrypted";
+            const isPlainMessage = e.type === "m.room.message";
+            if (!isEncrypted && !isPlainMessage) continue;
+
+            let content = e.content || {};
+            const rel = content["m.relates_to"] || {};
+            const isReplacement = rel.rel_type === "m.replace";
+
+            if (!isReplacement) {
+                targetRoot = e;
+                if (isEncrypted) {
+                    try {
+                        const senderMachine = await cryptoManager.getMachine(e.sender);
+                        const decrypted = await senderMachine.decryptRoomEvent(JSON.stringify(e), rustRoomId);
+                        if (decrypted.event) {
+                            content = JSON.parse(decrypted.event).content;
+                        }
+                    } catch (err) {}
+                }
+                latestContent = content;
+                rootId = e.event_id || e.id;
+                break;
+            }
         }
     }
 
-    if (!targetRoot) return null;
+    if (!targetRoot || !rootId) return null;
 
-    const rootId = targetRoot.event_id || targetRoot.id;
-
-    // 2. Best Effort: Find latest text (requires decryption if encrypted)
+    // 2. Best Effort: Find LATEST edit of this root in scrollback
     for (const e of scrollback.chunk) {
         if (e.unsigned?.redacted_by) continue;
         if (e.sender !== targetRoot.sender) continue;
@@ -110,14 +163,15 @@ const findLatestGhostMessage = async (bridgeInstance: Bridge, botClient: any, ro
         
         // If this is an edit of our root
         if (rel.rel_type === "m.replace" && (rel.event_id === rootId || rel.id === rootId)) {
-            // Try to decrypt so we have the actual text for pk;rp
+            // Decrypt using the SENDER's machine (same ghost as root)
             if (e.type === "m.room.encrypted") {
                 try {
-                    const decrypted = await machine.decryptRoomEvent(JSON.stringify(e), rustRoomId);
+                    const senderMachine = await cryptoManager.getMachine(e.sender);
+                    const decrypted = await senderMachine.decryptRoomEvent(JSON.stringify(e), rustRoomId);
                     if (decrypted.event) {
                         content = JSON.parse(decrypted.event).content;
                     }
-                } catch (err) { /* keep encrypted content */ }
+                } catch (err) {}
             }
             latestContent = content;
             break;
@@ -301,26 +355,13 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
             const relatesTo = (event.content as any)?.["m.relates_to"];
             const replyTo = relatesTo?.["m.in_reply_to"]?.event_id;
 
-            if (replyTo) {
-                try {
-                    const targetEvent = await (bridgeInstance.getBot().getClient() as any).getEvent(roomId, replyTo);
-                    if (targetEvent && targetEvent.sender.startsWith(`@_plural_${system.slug}_`)) {
-                        targetSender = targetEvent.sender;
-                        targetContent = targetEvent.content || {};
-                        targetId = targetEvent.event_id || targetEvent.id || replyTo;
-                        
-                        const rel = targetContent["m.relates_to"];
-                        originalId = (rel?.rel_type === "m.replace") ? (rel.event_id || rel.id) : targetId;
-                    }
-                } catch (e) {}
-            } else {
-                const resolution = await findLatestGhostMessage(bridgeInstance, bridgeInstance.getBot().getClient(), roomId, system.slug);
-                if (resolution) {
-                    targetSender = resolution.event.sender;
-                    targetContent = resolution.latestContent;
-                    targetId = resolution.event.event_id || resolution.event.id;
-                    originalId = resolution.originalId;
-                }
+            const resolution = await resolveGhostMessage(bridgeInstance, bridgeInstance.getBot().getClient(), roomId, system.slug, replyTo);
+            
+            if (resolution) {
+                targetSender = resolution.event.sender;
+                targetContent = resolution.latestContent;
+                targetId = resolution.event.event_id || resolution.event.id;
+                originalId = resolution.originalId;
             }
 
             if (!targetId || !targetSender || !targetContent || !originalId) {
@@ -329,6 +370,9 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                 }
                 return;
             }
+
+            // Extract text correctly (plaintext body)
+            const latestText = targetContent["m.new_content"]?.body || targetContent.body;
 
             if (cmd === "edit" || cmd === "e") {
                 const newText = parts.slice(1).join(" ");
@@ -343,16 +387,25 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                 const memberSlug = parts[1]?.toLowerCase();
                 const member = system.members.find(m => m.slug === memberSlug);
                 if (member) {
-                    // Reproxy: Redact old and send new
-                    await safeRedact(bridgeInstance, roomId, originalId, "PluralReproxy", bridgeInstance.getIntent(targetSender));
                     const latestText = targetContent["m.new_content"]?.body || targetContent.body;
+
+                    if (!latestText) {
+                        await sendEncryptedText(bridgeInstance.getIntent(), roomId, "Could not extract the message text to reproxy. This usually happens if the bot can't decrypt the original message.");
+                        return;
+                    }
+
+                    // Reproxy: Redact old root and send new from new ghost
+                    await safeRedact(bridgeInstance, roomId, originalId, "PluralReproxy", bridgeInstance.getIntent(targetSender));
+                    
                     const ghostUserId = `@_plural_${system.slug}_${member.slug}:${DOMAIN}`;
                     const intent = bridgeInstance.getIntent(ghostUserId);
                     const finalDisplayName = system.systemTag ? `${member.displayName || member.name} ${system.systemTag}` : (member.displayName || member.name);
+                    
                     await intent.ensureRegistered();
                     await intent.join(roomId);
                     await intent.setDisplayName(finalDisplayName);
                     if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
+                    
                     await sendEncryptedEvent(intent, roomId, "m.room.message", { msgtype: "m.text", body: latestText }, cryptoManager, currentAsToken);
                 }
             } else {
