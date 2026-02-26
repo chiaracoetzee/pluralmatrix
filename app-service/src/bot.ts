@@ -333,7 +333,7 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
         if (cmd === "list") {
             const system = await proxyCache.getSystemRules(sender, prismaClient);
             if (!system || system.members.length === 0) {
-                await sendEncryptedText(bridgeInstance.getIntent(), roomId, "You don't have any alters registered yet.");
+                await sendEncryptedText(bridgeInstance.getIntent(), roomId, "You don't have any system members registered yet.");
                 return;
             }
             const sortedMembers = system.members.sort((a, b) => a.slug.localeCompare(b.slug));
@@ -397,6 +397,7 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
 
             proxyCache.invalidate(targetMxid);
             emitSystemUpdate(targetMxid);
+            emitSystemUpdate(sender);
             await sendRichText(bridgeInstance.getIntent(), roomId, `Successfully linked **${targetMxid}** to this system.`);
             return;
         }
@@ -440,6 +441,7 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
 
             proxyCache.invalidate(targetMxid);
             emitSystemUpdate(targetMxid);
+            emitSystemUpdate(sender);
             await sendRichText(bridgeInstance.getIntent(), roomId, `Successfully unlinked **${targetMxid}** from this system.`);
             return;
         }

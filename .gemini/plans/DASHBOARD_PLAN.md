@@ -19,12 +19,12 @@ This plan covers the development of the web-based configuration dashboard for Pl
 *   [ ] Create automated tests for the login flow.
 
 ## 3. Phase 2: Member CRUD API 📝
-**Goal:** Backend logic for managing alters.
+**Goal:** Backend logic for managing system members.
 
-*   [ ] Implement `GET /api/members`: Fetch all alters for the logged-in user.
-*   [ ] Implement `POST /api/members`: Create a new alter.
-*   [ ] Implement `PATCH /api/members/:id`: Update alter attributes.
-*   [ ] Implement `DELETE /api/members/:id`: Remove an alter.
+*   [ ] Implement `GET /api/members`: Fetch all system members for the logged-in user.
+*   [ ] Implement `POST /api/members`: Create a new system member.
+*   [ ] Implement `PATCH /api/members/:id`: Update system member attributes.
+*   [ ] Implement `DELETE /api/members/:id`: Remove a system member.
 *   [ ] Implement avatar upload handling (Proxying to Matrix Media Repo).
 
 ## 4. Phase 3: PluralKit Importer 🚀
@@ -43,7 +43,7 @@ This plan covers the development of the web-based configuration dashboard for Pl
 *   [ ] Build Login Page.
 *   [ ] Build System Dashboard (Stats & System Name).
 *   [ ] Build Member Grid (Cards with avatars).
-*   [ ] Build Alter Editor (Forms for editing tags, names, etc.).
+*   [ ] Build System Member Editor (Forms for editing tags, names, etc.).
 *   [ ] Build Import UI (Drag & Drop JSON).
 
 ## 6. Verification Steps

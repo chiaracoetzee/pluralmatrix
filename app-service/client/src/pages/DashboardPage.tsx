@@ -58,6 +58,7 @@ const DashboardPage: React.FC = () => {
             const data = JSON.parse(event.data);
             if (data.type === 'SYSTEM_UPDATE') {
                 fetchSystem();
+                fetchMembers();
             }
         };
 
@@ -71,7 +72,7 @@ const DashboardPage: React.FC = () => {
     }, [token]);
 
     const handleDelete = async (id: string) => {
-        if (confirm('Are you sure you want to delete this alter?')) {
+        if (confirm('Are you sure you want to delete this system member?')) {
             try {
                 await memberService.delete(id);
                 fetchMembers();
@@ -82,7 +83,7 @@ const DashboardPage: React.FC = () => {
     };
 
     const handleDeleteAll = async () => {
-        if (confirm('⚠️ WARNING: This will permanently delete ALL alters in your system. This cannot be undone. Are you absolutely sure?')) {
+        if (confirm('⚠️ WARNING: This will permanently delete ALL system members in your system. This cannot be undone. Are you absolutely sure?')) {
             try {
                 await memberService.deleteAll();
                 fetchMembers();
@@ -176,7 +177,7 @@ const DashboardPage: React.FC = () => {
                                 </div>
                             )}
                         </div>
-                        <p className="text-matrix-muted font-medium mt-4">You have {members.length} registered alters.</p>
+                        <p className="text-matrix-muted font-medium mt-4">You have {members.length} registered system members.</p>
                     </div>
                     
                     <div className="flex items-center gap-3">
@@ -184,7 +185,7 @@ const DashboardPage: React.FC = () => {
                             onClick={() => { setSelectedMember(null); setIsEditing(true); }}
                             className="matrix-button flex items-center shadow-lg shadow-matrix-primary/20"
                         >
-                            <Plus size={18} className="mr-2" /> Add Alter
+                            <Plus size={18} className="mr-2" /> Add System Member
                         </button>
 
                         <div className="relative">
@@ -238,7 +239,7 @@ const DashboardPage: React.FC = () => {
                                                 onClick={() => { handleDeleteAll(); setIsDataMenuOpen(false); }}
                                                 className="w-full px-4 py-2.5 text-left text-sm hover:bg-red-400/10 text-red-400 flex items-center transition-colors"
                                             >
-                                                <Trash2 size={16} className="mr-3" /> Delete All Alters
+                                                <Trash2 size={16} className="mr-3" /> Delete All System Members
                                             </button>
                                         </motion.div>
                                     </>
@@ -294,8 +295,8 @@ const DashboardPage: React.FC = () => {
                         <div className="w-20 h-20 bg-matrix-light rounded-full flex items-center justify-center mx-auto text-matrix-muted">
                             <Search size={40} />
                         </div>
-                        <h3 className="text-xl font-bold">No alters found</h3>
-                        <p className="text-matrix-muted max-w-xs mx-auto">Try a different search term or add your first alter using the button above.</p>
+                        <h3 className="text-xl font-bold">No system members found</h3>
+                        <p className="text-matrix-muted max-w-xs mx-auto">Try a different search term or add your first system member using the button above.</p>
                     </div>
                 )}
             </main>

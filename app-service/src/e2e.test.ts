@@ -58,8 +58,8 @@ describe('PluralMatrix E2E Roundtrip', () => {
         const messageBody = "Hello world from E2E";
         const proxyPrefix = "e2e:";
         
-        // 1. Create an alter via the API
-        console.log(`[E2E-Plain] Creating alter E2E-Ghost...`);
+        // 1. Create a system member via the API
+        console.log(`[E2E-Plain] Creating system member E2E-Ghost...`);
         const slug = `e2e-ghost-${Date.now()}`;
         const res = await fetch(`http://localhost:9000/api/members`, {
             method: 'POST',
@@ -75,7 +75,7 @@ describe('PluralMatrix E2E Roundtrip', () => {
         });
         
         if (!res.ok) throw new Error(`Failed to create member: ${res.status}`);
-        console.log(`[E2E-Plain] Alter created with slug: ${slug}`);
+        console.log(`[E2E-Plain] System member created with slug: ${slug}`);
 
         // 2. Setup listener for ghost response
         const ghostMessagePromise = new Promise<any>((resolve) => {

@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { AuthRequest } from '../auth';
 import { PluralKitImportSchema } from '../schemas/import';
 import { proxyCache } from '../services/cache';
+import { emitSystemUpdate } from '../services/events';
 import { importFromPluralKit, exportToPluralKit, stringifyWithEscapedUnicode, exportAvatarsZip, importAvatarsZip } from '../import';
 
 export const importPluralKit = async (req: AuthRequest, res: Response) => {
@@ -10,6 +11,7 @@ export const importPluralKit = async (req: AuthRequest, res: Response) => {
         const jsonData = PluralKitImportSchema.parse(req.body);
         const count = await importFromPluralKit(mxid, jsonData);
         proxyCache.invalidate(mxid); // Invalidate after import
+        emitSystemUpdate(mxid);
         res.json({ success: true, count });
     } catch (e) {
         console.error('[ImportController] Import failed:', e);
@@ -50,6 +52,7 @@ export const importMedia = async (req: AuthRequest, res: Response) => {
         const mxid = req.user!.mxid;
         const count = await importAvatarsZip(mxid, req.body);
         proxyCache.invalidate(mxid); // Invalidate after avatar updates
+        emitSystemUpdate(mxid);
         res.json({ success: true, count });
     } catch (e) {
         console.error('[ImportController] Media import failed:', e);

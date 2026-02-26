@@ -184,12 +184,11 @@ export const importFromPluralKit = async (mxid: string, jsonData: any) => {
     if (link) {
         system = link.system;
         // Update existing system
-        let systemSlug = (isPluralMatrix && jsonData.id) ? jsonData.id : system.slug;
+        let baseSlug = (isPluralMatrix && jsonData.id) 
+            ? jsonData.id 
+            : generateSlug(jsonData.name || localpart, localpart);
         
-        // If slug changed, ensure uniqueness
-        if (systemSlug !== system.slug) {
-            systemSlug = await ensureUniqueSlug(prisma, systemSlug, system.id);
-        }
+        const systemSlug = await ensureUniqueSlug(prisma, baseSlug, system.id);
 
         system = await prisma.system.update({
             where: { id: system.id },

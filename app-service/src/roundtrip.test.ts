@@ -191,6 +191,37 @@ describe('PluralKit Roundtrip', () => {
         expect(exportedData?.members[0].id).toBe(longSlug);
     });
 
+    it('should update an existing system slug during import', async () => {
+        const mockPkData = {
+            version: 2,
+            name: 'Brand New Name',
+            members: []
+        };
+
+        const existingSystem = {
+            id: 'sys-1',
+            slug: 'old-slug',
+            name: 'Old Name'
+        };
+
+        (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({
+            system: existingSystem
+        });
+        (prisma.system.findUnique as jest.Mock).mockResolvedValue(null); // No collision
+        (prisma.system.update as jest.Mock).mockImplementation((args) => {
+            return Promise.resolve({ ...existingSystem, ...args.data });
+        });
+
+        await importFromPluralKit('@user:localhost', mockPkData);
+
+        expect(prisma.system.update).toHaveBeenCalledWith(expect.objectContaining({
+            where: { id: 'sys-1' },
+            data: expect.objectContaining({
+                slug: 'brand-new-name'
+            })
+        }));
+    });
+
     describe('stringifyWithEscapedUnicode', () => {
         it('should escape non-ASCII characters correctly', () => {
             const data = { name: "Lily 🌸", role: "Goddess é" };

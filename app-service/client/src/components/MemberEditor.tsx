@@ -73,7 +73,7 @@ const MemberEditor: React.FC<MemberEditorProps> = ({ member, onSave, onCancel })
             <div className="max-w-2xl w-full bg-matrix-light border border-white/10 rounded-2xl shadow-2xl my-8">
                 <form onSubmit={handleSubmit}>
                     <div className="p-6 border-b border-white/5 flex items-center justify-between">
-                        <h2 className="text-2xl font-bold">{member ? 'Edit Alter' : 'New Alter'}</h2>
+                        <h2 className="text-2xl font-bold">{member ? 'Edit System Member' : 'New System Member'}</h2>
                         <button type="button" onClick={onCancel} className="p-2 hover:bg-white/5 rounded-full text-matrix-muted transition-colors">
                             <X size={20} />
                         </button>
@@ -220,14 +220,10 @@ const MemberEditor: React.FC<MemberEditorProps> = ({ member, onSave, onCancel })
                         >
                             Cancel
                         </button>
-                        <button 
-                            type="submit" 
-                            disabled={loading}
-                            className="matrix-button flex items-center"
-                        >
-                            <Save size={18} className="mr-2" />
-                            {loading ? 'Saving...' : 'Save Alter'}
-                        </button>
+                                                <button type="submit" disabled={loading} className="matrix-button flex items-center">
+                                                    <Save size={18} className="mr-2" />
+                                                    {loading ? 'Saving...' : 'Save System Member'}
+                                                </button>
                     </div>
                 </form>
             </div>

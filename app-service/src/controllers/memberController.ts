@@ -3,6 +3,7 @@ import { prisma } from '../bot';
 import { AuthRequest } from '../auth';
 import { MemberSchema } from '../schemas/member';
 import { proxyCache } from '../services/cache';
+import { emitSystemUpdate } from '../services/events';
 import { syncGhostProfile, decommissionGhost } from '../import';
 
 export const listMembers = async (req: AuthRequest, res: Response) => {
@@ -51,6 +52,7 @@ export const createMember = async (req: AuthRequest, res: Response) => {
         await syncGhostProfile(member, system);
 
         proxyCache.invalidate(mxid);
+        emitSystemUpdate(mxid);
         res.json(member);
     } catch (e) {
         console.error(e);
@@ -84,6 +86,7 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
         await syncGhostProfile(updated, updated.system);
 
         proxyCache.invalidate(mxid);
+        emitSystemUpdate(mxid);
         res.json(updated);
     } catch (e) {
         res.status(500).json({ error: 'Failed to update member' });
@@ -111,6 +114,7 @@ export const deleteMember = async (req: AuthRequest, res: Response) => {
 
         await prisma.member.delete({ where: { id } });
         proxyCache.invalidate(mxid);
+        emitSystemUpdate(mxid);
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: 'Failed to delete member' });
@@ -140,6 +144,7 @@ export const deleteAllMembers = async (req: AuthRequest, res: Response) => {
             where: { systemId: link.systemId }
         });
         proxyCache.invalidate(mxid);
+        emitSystemUpdate(mxid);
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: 'Failed to delete all members' });

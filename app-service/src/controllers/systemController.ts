@@ -184,6 +184,7 @@ export const createLink = async (req: AuthRequest, res: Response) => {
 
         proxyCache.invalidate(targetMxid);
         emitSystemUpdate(targetMxid);
+        emitSystemUpdate(mxid);
         res.json(newLink);
     } catch (e) {
         res.status(500).json({ error: 'Failed to create link' });
@@ -226,6 +227,7 @@ export const deleteLink = async (req: AuthRequest, res: Response) => {
 
         proxyCache.invalidate(targetMxid);
         emitSystemUpdate(targetMxid);
+        emitSystemUpdate(mxid);
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: 'Failed to delete link' });
