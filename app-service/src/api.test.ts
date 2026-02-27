@@ -84,11 +84,12 @@ describe('API Endpoints', () => {
 
         it('POST /api/members should create a new member with all fields', async () => {
             (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({ 
-                system: { id: 'sys1', systemTag: 'Tag' } 
+                system: { id: 'sys1', systemTag: 'Tag', members: [] } 
             });
             (prisma.member.create as jest.Mock).mockResolvedValue({ 
                 id: 'm2', 
                 name: 'John',
+                slug: 'john',
                 description: 'A test user',
                 pronouns: 'He/Him',
                 color: 'ff0000'
@@ -99,7 +100,8 @@ describe('API Endpoints', () => {
                 .set(authHeader)
                 .send({ 
                     name: 'John', 
-                    proxyTags: [],
+                    slug: 'john',
+                    proxyTags: [{ prefix: 'j:', suffix: '' }],
                     description: 'A test user',
                     pronouns: 'He/Him',
                     color: 'ff0000'
@@ -159,6 +161,90 @@ describe('API Endpoints', () => {
                 .set(authHeader);
 
             expect(response.status).toBe(404);
+        });
+
+        it('POST /api/members should FAIL if required fields are missing', async () => {
+            (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({ system: { id: 'sys1' } });
+
+            const response = await request(app)
+                .post('/api/members')
+                .set(authHeader)
+                .send({ 
+                    // name, slug, proxyTags missing
+                });
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe('Invalid input format');
+        });
+
+        it('POST /api/members should SUCCEED with only required fields', async () => {
+            (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({ 
+                system: { id: 'sys1', members: [] } 
+            });
+            (prisma.member.create as jest.Mock).mockResolvedValue({ 
+                id: 'm2', 
+                name: 'Minimal',
+                slug: 'minimal',
+                proxyTags: [{ prefix: 'm:', suffix: '' }]
+            });
+
+            const response = await request(app)
+                .post('/api/members')
+                .set(authHeader)
+                .send({ 
+                    name: 'Minimal', 
+                    slug: 'minimal',
+                    proxyTags: [{ prefix: 'm:', suffix: '' }]
+                });
+
+            expect(response.status).toBe(200);
+            expect(response.body.name).toBe('Minimal');
+        });
+
+        it('POST /api/members should FAIL if duplicate proxy tags in system', async () => {
+            (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({ 
+                system: { 
+                    id: 'sys1', 
+                    members: [
+                        { name: 'Lily', proxyTags: [{ prefix: 'l:', suffix: '' }] }
+                    ] 
+                } 
+            });
+
+            const response = await request(app)
+                .post('/api/members')
+                .set(authHeader)
+                .send({ 
+                    name: 'John', 
+                    slug: 'john',
+                    proxyTags: [{ prefix: 'l:', suffix: '' }]
+                });
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toContain('already in use by Lily');
+        });
+
+        it('PATCH /api/members/:id should FAIL if updating to duplicate proxy tags', async () => {
+            (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({ 
+                system: { 
+                    id: 'sys1', 
+                    members: [
+                        { id: 'm1', name: 'Lily', proxyTags: [{ prefix: 'l:', suffix: '' }] },
+                        { id: 'm2', name: 'John', proxyTags: [{ prefix: 'j:', suffix: '' }] }
+                    ] 
+                } 
+            });
+            (prisma.member.findFirst as jest.Mock).mockResolvedValue({ id: 'm2', systemId: 'sys1' });
+
+            const response = await request(app)
+                .patch('/api/members/m2')
+                .set(authHeader)
+                .send({ 
+                    proxyTags: [{ prefix: 'l:', suffix: '' }]
+                });
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toContain('already in use by Lily');
         });
     });
 

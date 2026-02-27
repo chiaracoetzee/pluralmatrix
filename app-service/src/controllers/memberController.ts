@@ -5,6 +5,7 @@ import { MemberSchema } from '../schemas/member';
 import { proxyCache } from '../services/cache';
 import { emitSystemUpdate } from '../services/events';
 import { syncGhostProfile, decommissionGhost } from '../import';
+import { z } from 'zod';
 
 export const listMembers = async (req: AuthRequest, res: Response) => {
     try {
@@ -22,17 +23,24 @@ export const listMembers = async (req: AuthRequest, res: Response) => {
 export const createMember = async (req: AuthRequest, res: Response) => {
     try {
         const mxid = req.user!.mxid;
-        const { name, displayName, avatarUrl, proxyTags, slug: providedSlug, description, pronouns, color } = MemberSchema.parse(req.body);
+        const { name, displayName, avatarUrl, proxyTags, slug, description, pronouns, color } = MemberSchema.parse(req.body);
 
         const link = await prisma.accountLink.findUnique({ 
             where: { matrixId: mxid },
-            include: { system: true }
+            include: { system: { include: { members: true } } }
         });
         if (!link) return res.status(404).json({ error: 'System not found' });
         const system = link.system;
 
-        const baseSlug = providedSlug || name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-        const slug = providedSlug ? baseSlug : `${baseSlug}-${Date.now()}`;
+        // Check for duplicate proxy tags in the same system
+        for (const member of system.members) {
+            const existingTags = member.proxyTags as any[];
+            for (const tag of proxyTags) {
+                if (existingTags.some(et => et.prefix === tag.prefix && et.suffix === (tag.suffix || ""))) {
+                    return res.status(400).json({ error: `The proxy tag "${tag.prefix}...${tag.suffix || ""}" is already in use by ${member.name}.` });
+                }
+            }
+        }
 
         const member = await prisma.member.create({
             data: {
@@ -55,6 +63,9 @@ export const createMember = async (req: AuthRequest, res: Response) => {
         emitSystemUpdate(mxid);
         res.json(member);
     } catch (e) {
+        if (e instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Invalid input format', details: e.issues });
+        }
         console.error(e);
         res.status(500).json({ error: 'Failed to create member' });
     }
@@ -67,14 +78,28 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
         const updateData = MemberSchema.partial().parse(req.body);
 
         const link = await prisma.accountLink.findUnique({
-            where: { matrixId: mxid }
+            where: { matrixId: mxid },
+            include: { system: { include: { members: true } } }
         });
         if (!link) return res.status(403).json({ error: 'Forbidden' });
 
-        const member = await prisma.member.findFirst({
+        const memberToUpdate = await prisma.member.findFirst({
             where: { id, systemId: link.systemId }
         });
-        if (!member) return res.status(404).json({ error: 'Member not found' });
+        if (!memberToUpdate) return res.status(404).json({ error: 'Member not found' });
+
+        // Check for duplicate proxy tags in the same system (excluding the current member)
+        if (updateData.proxyTags) {
+            for (const member of link.system.members) {
+                if (member.id === id) continue;
+                const existingTags = member.proxyTags as any[];
+                for (const tag of updateData.proxyTags) {
+                    if (existingTags.some(et => et.prefix === tag.prefix && et.suffix === (tag.suffix || ""))) {
+                        return res.status(400).json({ error: `The proxy tag "${tag.prefix}...${tag.suffix || ""}" is already in use by ${member.name}.` });
+                    }
+                }
+            }
+        }
 
         const updated = await prisma.member.update({
             where: { id },
@@ -89,6 +114,9 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
         emitSystemUpdate(mxid);
         res.json(updated);
     } catch (e) {
+        if (e instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Invalid input format', details: e.issues });
+        }
         res.status(500).json({ error: 'Failed to update member' });
     }
 };

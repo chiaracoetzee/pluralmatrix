@@ -53,16 +53,40 @@ const MemberEditor: React.FC<MemberEditorProps> = ({ member, onSave, onCancel })
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        
+        // Basic validation for proxy tags
+        const validTags = formData.proxyTags.filter((t: any) => t.prefix.trim().length > 0);
+        if (validTags.length === 0) {
+            alert('At least one proxy tag with a prefix is required.');
+            return;
+        }
+
+        // Check for duplicates within the current member
+        const tagCombos = new Set();
+        for (const tag of validTags) {
+            const combo = `${tag.prefix}|${tag.suffix || ''}`;
+            if (tagCombos.has(combo)) {
+                alert(`Duplicate proxy tag found: "${tag.prefix}...${tag.suffix || ''}"`);
+                return;
+            }
+            tagCombos.add(combo);
+        }
+
         setLoading(true);
         try {
+            const dataToSave = {
+                ...formData,
+                proxyTags: validTags
+            };
+
             if (member?.id) {
-                await memberService.update(member.id, formData);
+                await memberService.update(member.id, dataToSave);
             } else {
-                await memberService.create(formData);
+                await memberService.create(dataToSave);
             }
             onSave();
-        } catch (err) {
-            alert('Failed to save member.');
+        } catch (err: any) {
+            alert(err.response?.data?.error || 'Failed to save member.');
         } finally {
             setLoading(false);
         }
