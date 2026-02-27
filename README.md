@@ -7,7 +7,7 @@ permalink: /
 
 PluralMatrix is a Matrix Application Service designed for plural systems using Matrix, the open-source alternative to Discord. As in PluralKit, message prefixes are used to speak as each system member. But in PluralMatrix, every system member is represented by a unique "ghost" user who automatically joins rooms and sends messages on that member's behalf, providing a more native Matrix experience.
 
-**Note on Compatibility:** While the "Zero-Flash" feature (which instantly hides trigger messages) requires a custom module installed on a Synapse homeserver, all other PluralMatrix features—including E2EE support and the dashboard—are compatible with any standard Matrix server.
+**Deployment & Compatibility:** PluralMatrix is an Application Service requiring administrative access and installation on your homeserver; it cannot be invited to third-party servers like matrix.org. The "Zero-Flash" feature requires a custom Synapse module, but all other functionality—including E2EE and the web dashboard—is compatible with any standard Matrix server.
 
 ## Visuals <a name="visuals" href="#visuals">#</a>
 
