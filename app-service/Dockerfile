@@ -1,3 +1,20 @@
+# Stage 1: Rust Builder
+FROM rust:latest AS rust-builder
+WORKDIR /usr/src/helper
+
+# 1a. Copy only manifests
+COPY rust-crypto-helper/Cargo.toml rust-crypto-helper/Cargo.lock* ./
+
+# 1b. Create a dummy main.rs to build dependencies
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+RUN cargo build --release
+RUN rm -f target/release/deps/rust_crypto_helper*
+
+# 1c. Now copy the real source and build
+COPY rust-crypto-helper/src ./src
+RUN cargo build --release
+
+# Stage 2: Node App
 FROM node:22-slim
 
 WORKDIR /app
@@ -7,20 +24,24 @@ RUN apt-get update -y && apt-get install -y openssl ca-certificates python3 make
 
 # 1. Build Frontend
 WORKDIR /app/client
-COPY client/package*.json ./
+COPY app-service/client/package*.json ./
 RUN npm install
-COPY client/ ./
+COPY app-service/client/ ./
 RUN npm run build
 
 # 2. Build Backend
 WORKDIR /app
-COPY package*.json ./
+COPY app-service/package*.json ./
 RUN npm install
-COPY . .
+COPY app-service/ .
+
 RUN npx prisma generate
 RUN npx tsc
 
-COPY docker-entrypoint.sh /usr/local/bin/
+# Copy Rust helper from builder
+COPY --from=rust-builder /usr/src/helper/target/release/rust-crypto-helper /usr/local/bin/
+
+COPY app-service/docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 9000

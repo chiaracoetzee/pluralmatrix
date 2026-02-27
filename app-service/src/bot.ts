@@ -697,6 +697,7 @@ export const startMatrixBot = async () => {
 
     console.log("Starting Matrix Bridge...");
     await bridge.initialise();
+    cryptoManager.setContext(bridge, asToken);
 
     const botUserId = bridge.getBot().getUserId();
     

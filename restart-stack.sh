@@ -99,7 +99,7 @@ echo " Ready!"
 
 # 3. Rebuild the App Service Image
 echo "📦 Rebuilding App Service image..."
-sudo docker build -t ${PROJECT_NAME}-app-service ./app-service
+sudo docker build -t ${PROJECT_NAME}-app-service -f ./app-service/Dockerfile .
 
 # 4. Remove old container
 echo "🗑️ Removing old ${PROJECT_NAME}-app-service container..."

@@ -1,0 +1,8 @@
+app-service/client/node_modules
+app-service/client/dist
+app-service/node_modules
+app-service/data
+app-service/test_output.log
+rust-crypto-helper/target
+.git
+.env

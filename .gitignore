@@ -33,6 +33,10 @@ Thumbs.db
 app-service/data/
 app-service/test-crypto-store/
 
+# Rust build artifacts
+target/
+rust-crypto-helper/target/
+
 # Docker
 .dockercache
 *:Zone.Identifier
