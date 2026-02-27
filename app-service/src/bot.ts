@@ -721,6 +721,28 @@ export const startMatrixBot = async () => {
     await botMachine.receiveSyncChanges("[]", new DeviceLists(), {}, []);
     await processCryptoRequests(botMachine, botIntent, asToken);
 
+    // Explicitly register the bot as an AS user
+    // This resolves issues where clients can't invite the bot if it's only implicitly created
+    const botLocalpart = botUserId.split(":")[0].substring(1);
+    try {
+        await (botIntent as any).botSdkIntent.underlyingClient.doRequest(
+            "POST",
+            "/_matrix/client/v3/register",
+            null,
+            {
+                type: "m.login.application_service",
+                username: botLocalpart
+            }
+        );
+        console.log(`[Bot] Registered ${botUserId} as Application Service user`);
+    } catch (e: any) {
+        if (e.message?.includes("M_USER_IN_USE")) {
+            console.log(`[Bot] ${botUserId} is already registered`);
+        } else {
+            console.warn(`[Bot] Registration attempt failed: ${e.message}`);
+        }
+    }
+
     // Hook middleware into Express
     const appServiceInstance = new AppService({ homeserverToken: (reg as any).hs_token });
     const app = appServiceInstance.app as any;
