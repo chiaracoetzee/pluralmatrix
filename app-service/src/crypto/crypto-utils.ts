@@ -1,11 +1,12 @@
-import { OlmMachine, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, SignatureUploadRequest } from "@matrix-org/matrix-sdk-crypto-nodejs";
+import { OlmMachine, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, SignatureUploadRequest, DeviceLists } from "@matrix-org/matrix-sdk-crypto-nodejs";
 import { Intent } from "matrix-appservice-bridge";
+import { sleep } from "../utils/timer";
 
 // In-memory cache to prevent redundant registrations/logins
 const registeredDevices = new Set<string>();
 
 // Helper to perform raw fetch using AS Token (MSC3202 style)
-async function doAsRequest(
+export async function doAsRequest(
     hsUrl: string, 
     asToken: string, 
     targetUserId: string, 
@@ -25,23 +26,55 @@ async function doAsRequest(
         'Content-Type': 'application/json'
     };
 
-    const res = await fetch(url.toString(), {
-        method: method,
-        headers: headers,
-        body: body ? JSON.stringify(body) : undefined
-    });
+    let attempts = 0;
+    const maxAttempts = 5;
 
-    if (!res.ok) {
-        const text = await res.text();
-        console.error(`[Crypto] Matrix API Error ${res.status}: ${text} (${method} ${url.toString()})`);
-        
-        const error: any = new Error(`Matrix API Error ${res.status}`);
-        error.status = res.status;
-        error.body = text;
-        throw error;
+    while (attempts < maxAttempts) {
+        try {
+            const res = await fetch(url.toString(), {
+                method: method,
+                headers: headers,
+                body: body ? JSON.stringify(body) : undefined
+            });
+
+            if (!res.ok) {
+                const text = await res.text();
+                
+                // Handle Rate Limiting
+                if (res.status === 429 || text.includes("M_LIMIT_EXCEEDED")) {
+                    attempts++;
+                    const waitTime = Math.pow(2, attempts) * 1000 + (Math.random() * 1000);
+                    console.warn(`[Crypto] Rate limited during ${method} ${path} for ${targetUserId}. Waiting ${Math.round(waitTime)}ms...`);
+                    await sleep(waitTime);
+                    continue;
+                }
+
+                console.error(`[Crypto] Matrix API Error ${res.status}: ${text} (${method} ${url.toString()})`);
+                
+                const error: any = new Error(`Matrix API Error ${res.status}`);
+                error.status = res.status;
+                error.body = text;
+                throw error;
+            }
+            return res.json();
+        } catch (e: any) {
+            if (e.status === 429 || e.message?.includes("M_LIMIT_EXCEEDED")) {
+                // Already handled above if possible, but catch network-level or other errors here
+                attempts++;
+                const waitTime = Math.pow(2, attempts) * 1000 + (Math.random() * 1000);
+                await sleep(waitTime);
+                continue;
+            }
+            throw e;
+        }
     }
-    return res.json();
+
+    throw new Error(`Max attempts reached for ${method} ${path}`);
 }
+
+// Semaphore to limit concurrent registrations (Synapse gets cranky if too many happen at once)
+let activeRegistrations = 0;
+const MAX_CONCURRENT_REGISTRATIONS = 3;
 
 /**
  * Ensures a device is registered on the homeserver.
@@ -52,29 +85,59 @@ export async function registerDevice(intent: Intent, deviceId: string): Promise<
     const cacheKey = `${userId}|${deviceId}`;
     if (registeredDevices.has(cacheKey)) return false;
 
-    console.log(`[Crypto] Registering/Verifying device ${deviceId} for ${userId}...`);
+    // Wait for slot in semaphore
+    while (activeRegistrations >= MAX_CONCURRENT_REGISTRATIONS) {
+        await sleep(500 + Math.random() * 500);
+    }
+
+    activeRegistrations++;
     try {
-        await intent.matrixClient.doRequest("POST", "/_matrix/client/v3/login", null, {
-            type: "m.login.application_service",
-            identifier: {
-                type: "m.id.user",
-                user: userId 
-            },
-            device_id: deviceId,
-            initial_device_display_name: "PluralMatrix (Native E2EE)"
-        });
-        console.log(`[Crypto] Device ${deviceId} registration verified.`);
-        registeredDevices.add(cacheKey);
-        return true;
-    } catch (e: any) {
-        if (e.message?.includes("M_LIMIT_EXCEEDED")) {
-            console.warn(`[Crypto] Rate limited while registering device ${deviceId}.`);
-            return false;
+        let attempts = 0;
+        const maxAttempts = 5;
+
+        while (attempts < maxAttempts) {
+            try {
+                if (attempts > 0) {
+                    console.log(`[Crypto] Retrying registration for ${userId} (Attempt ${attempts + 1}/${maxAttempts})...`);
+                } else {
+                    console.log(`[Crypto] Registering/Verifying device ${deviceId} for ${userId}...`);
+                }
+
+                await intent.matrixClient.doRequest("POST", "/_matrix/client/v3/login", null, {
+                    type: "m.login.application_service",
+                    identifier: {
+                        type: "m.id.user",
+                        user: userId 
+                    },
+                    device_id: deviceId,
+                    initial_device_display_name: "PluralMatrix (Native E2EE)"
+                });
+                
+                console.log(`[Crypto] Device ${deviceId} registration verified.`);
+                registeredDevices.add(cacheKey);
+                return true;
+            } catch (e: any) {
+                const isRateLimit = e.message?.includes("M_LIMIT_EXCEEDED") || (e.body && JSON.parse(e.body).errcode === "M_LIMIT_EXCEEDED");
+                
+                if (isRateLimit) {
+                    attempts++;
+                    const waitTime = Math.pow(2, attempts) * 1000 + (Math.random() * 1000);
+                    console.warn(`[Crypto] Rate limited while registering device ${deviceId} for ${userId}. Waiting ${Math.round(waitTime)}ms...`);
+                    await sleep(waitTime);
+                    continue;
+                }
+                
+                console.error(`[Crypto] Device registration call failed for ${userId}:`, e.message);
+                // We still add to registeredDevices to prevent infinite loops if the error is permanent (like 403)
+                registeredDevices.add(cacheKey);
+                return false;
+            }
         }
-        
-        console.error(`[Crypto] Device registration call failed for ${userId}:`, e.message);
-        registeredDevices.add(cacheKey);
+
+        console.error(`[Crypto] Max registration attempts reached for ${userId}`);
         return false;
+    } finally {
+        activeRegistrations--;
     }
 }
 

@@ -1,7 +1,7 @@
 import { Intent } from "matrix-appservice-bridge";
 import { OlmMachineManager } from "./OlmMachineManager";
 import { RoomId, UserId, EncryptionSettings, DeviceLists } from "@matrix-org/matrix-sdk-crypto-nodejs";
-import { processCryptoRequests, registerDevice, dispatchRequest } from "./crypto-utils";
+import { processCryptoRequests, registerDevice, doAsRequest, dispatchRequest } from "./crypto-utils";
 
 /**
  * Manually dispatches to-device messages (like Megolm room keys) to Synapse.
@@ -12,22 +12,14 @@ async function dispatchToDevice(intent: Intent, asToken: string, ghostUserId: st
     const txnId = req.txnId || req.txn_id;
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.messages ? { messages: req.messages } : req);
 
-    const url = new URL(`${hsUrl}/_matrix/client/v3/sendToDevice/${encodeURIComponent(eventType)}/${encodeURIComponent(txnId)}`);
-    url.searchParams.set("user_id", ghostUserId);
-
-    const res = await fetch(url.toString(), {
-        method: "PUT",
-        headers: {
-            'Authorization': `Bearer ${asToken}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(body)
-    });
-
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`ToDevice dispatch failed: ${res.status} ${text}`);
-    }
+    await doAsRequest(
+        hsUrl, 
+        asToken, 
+        ghostUserId, 
+        "PUT", 
+        `/_matrix/client/v3/sendToDevice/${encodeURIComponent(eventType)}/${encodeURIComponent(txnId)}`, 
+        body
+    );
 }
 
 /**
