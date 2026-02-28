@@ -78,12 +78,15 @@ describe('Bot Commands Resolution Tests', () => {
             name: "Seraphim",
             members: [
                 {
+                    id: "lily-id",
                     slug: "lily",
                     name: "Lily",
                     displayName: "Lily 🌸",
+                    avatarUrl: "mxc://example.com/lily",
                     proxyTags: [{ prefix: "l:", suffix: "" }]
                 },
                 {
+                    id: "riven-id",
                     slug: "riven",
                     name: "Riven",
                     proxyTags: [{ prefix: "r:", suffix: "" }]
@@ -492,7 +495,7 @@ describe('Bot Commands Resolution Tests', () => {
             );
         });
 
-        it('pk;member should show member details and use encrypted rich text', async () => {
+        it('pk;member should show member details and avatar if available', async () => {
             const req = new Request({
                 data: {
                     type: "m.room.message",
@@ -506,6 +509,8 @@ describe('Bot Commands Resolution Tests', () => {
             await handleEvent(req as any, undefined, mockBridge as any, prisma, false, "mock_token");
 
             const { sendEncryptedEvent } = require('./crypto/encryption');
+            
+            // Should send text details
             expect(sendEncryptedEvent).toHaveBeenCalledWith(
                 expect.objectContaining({ userId: "@plural_bot:localhost" }),
                 roomId,
@@ -514,6 +519,21 @@ describe('Bot Commands Resolution Tests', () => {
                     msgtype: "m.text",
                     body: expect.stringContaining("Member Details: Lily"),
                     format: "org.matrix.custom.html"
+                }),
+                expect.anything(),
+                expect.anything()
+            );
+
+            // Should also send the avatar image as a rich-text fallback
+            expect(sendEncryptedEvent).toHaveBeenCalledWith(
+                expect.objectContaining({ userId: "@plural_bot:localhost" }),
+                roomId,
+                "m.room.message",
+                expect.objectContaining({
+                    msgtype: "m.text",
+                    body: expect.stringContaining("Avatar"),
+                    format: "org.matrix.custom.html",
+                    formatted_body: expect.stringContaining('<img src="mxc://example.com/lily"')
                 }),
                 expect.anything(),
                 expect.anything()

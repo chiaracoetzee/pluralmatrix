@@ -4,34 +4,41 @@ const prisma = new PrismaClient();
 
 async function main() {
     // 1. Define the Matrix User ID who owns this system
-    // REPLACE THIS with the user you create! e.g. @admin:localhost
     const OWNER_ID = "@chiarastellata:localhost"; 
+    const SYSTEM_SLUG = "chiara";
 
     console.log(`Seeding database for owner: ${OWNER_ID}...`);
 
-    // 2. Create the System
+    // 2. Create the System and Link
     const system = await prisma.system.upsert({
-        where: { ownerId: OWNER_ID },
+        where: { slug: SYSTEM_SLUG },
         update: {},
         create: {
-            ownerId: OWNER_ID,
+            slug: SYSTEM_SLUG,
             name: "Test System",
+            accountLinks: {
+                create: {
+                    matrixId: OWNER_ID,
+                    isPrimary: true
+                }
+            },
             members: {
                 create: [
                     {
+                        slug: "lily",
                         name: "Lily",
                         displayName: "Lily 🌸",
                         avatarUrl: "mxc://localhost/FEjbXVVMcuGXyuFLmMfgjsLL", 
                         proxyTags: [
-                            { prefix: "[Lily]" },
-                            { prefix: "l;", suffix: "" } 
+                            { prefix: "l:", suffix: "" } 
                         ]
                     },
                     {
+                        slug: "john",
                         name: "John",
                         displayName: "John 🛡️",
                         proxyTags: [
-                            { prefix: "[John]" }
+                            { prefix: "j:", suffix: "" }
                         ]
                     }
                 ]
@@ -39,16 +46,10 @@ async function main() {
         }
     });
 
-    console.log("Created System:", system);
-
-    // 3. Update Lily's avatar if she exists
-    await prisma.member.updateMany({
-        where: { systemId: system.id, name: "Lily" },
-        data: { avatarUrl: "mxc://localhost/FEjbXVVMcuGXyuFLmMfgjsLL" }
-    });
+    console.log("Created/Found System:", system);
 
     const members = await prisma.member.findMany({ where: { systemId: system.id } });
-    console.log("Created Members:", members);
+    console.log("Members in system:", members);
 }
 
 main()

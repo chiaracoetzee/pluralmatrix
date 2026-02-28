@@ -66,6 +66,25 @@ const sendRichText = async (intent: Intent, roomId: string, text: string) => {
     }, cryptoManager, asToken);
 };
 
+const sendEncryptedImage = async (intent: Intent, roomId: string, mxcUrl: string, name: string) => {
+    const userId = intent.userId;
+    const machine = await cryptoManager.getMachine(userId);
+    await registerDevice(intent, machine.deviceId.toString());
+
+    // We use m.text with HTML img tag instead of native m.image 
+    // because many Matrix clients (like Cinny) show broken icons for m.image 
+    // if metadata (w, h, size) is missing, and we don't always have that.
+    const html = `<img src="${mxcUrl}" alt="${name}" />`;
+    const body = `[Avatar: ${name}] (${mxcUrl})`;
+
+    return sendEncryptedEvent(intent, roomId, "m.room.message", {
+        msgtype: "m.text",
+        body: body,
+        format: "org.matrix.custom.html",
+        formatted_body: html
+    }, cryptoManager, asToken);
+};
+
 const getRoomMessages = async (botClient: any, roomId: string, limit: number = 50) => {
     return botClient.doRequest("GET", `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/messages`, {
         limit,
@@ -706,7 +725,14 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
             if (member.description) info += `\n### Description\n${member.description}\n\n`;
             const tags = (member.proxyTags as any[]).map(t => `\`${t.prefix}text${t.suffix}\``).join(", ");
             info += `--- \n* **Proxy Tags:** ${tags || "None"}`;
+            
             await sendRichText(bridgeInstance.getIntent(), roomId, info);
+
+            if (member.avatarUrl) {
+                await sendEncryptedImage(bridgeInstance.getIntent(), roomId, member.avatarUrl, `${member.name}'s Avatar`).catch(err => {
+                    console.error(`[Bot] Failed to send avatar for ${member.slug}:`, err.message);
+                });
+            }
             return;
         }
 
