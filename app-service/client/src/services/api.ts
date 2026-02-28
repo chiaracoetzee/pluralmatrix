@@ -54,6 +54,8 @@ export const systemService = {
     createLink: (targetMxid: string) => api.post('/system/links', { targetMxid }),
     setPrimaryLink: (targetMxid: string) => api.post('/system/links/primary', { targetMxid }),
     deleteLink: (mxid: string) => api.delete(`/system/links/${encodeURIComponent(mxid)}`),
+    getDeadLetters: () => api.get('/system/dead_letters'),
+    deleteDeadLetter: (id: string) => api.delete(`/system/dead_letters/${encodeURIComponent(id)}`)
 };
 
 export default api;

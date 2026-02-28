@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { X, Save, Settings, Hash, Link as LinkIcon, Trash2, Plus, AlertCircle, Star } from 'lucide-react';
 import { systemService } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import DeadLetterQueue from './dlq/DeadLetterQueue';
+import { Archive } from 'lucide-react';
 
 interface SystemSettingsProps {
     onSave: () => void;
@@ -10,6 +12,8 @@ interface SystemSettingsProps {
 
 const SystemSettings: React.FC<SystemSettingsProps> = ({ onSave, onCancel }) => {
     const { user } = useAuth();
+    const [dlqOpen, setDlqOpen] = useState(false);
+    const [dlqCount, setDlqCount] = useState(0);
     const [formData, setFormData] = useState({
         name: '',
         systemTag: '',
@@ -40,6 +44,9 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ onSave, onCancel }) => 
                     slug: res.data.slug || ''
                 });
                 await fetchLinks();
+                
+                const dlqRes = await systemService.getDeadLetters();
+                setDlqCount(dlqRes.data.length);
             } catch (err) {
                 alert('Failed to load system settings.');
             } finally {
@@ -231,7 +238,36 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ onSave, onCancel }) => 
                                 <p>Target account must have zero members in its current system. Its old empty system will be deleted.</p>
                             </div>
                         </form>
+
+                        {/* DLQ Button restored to original design but right-aligned */}
+                        <div className="flex justify-end mt-4">
+                            <button 
+                                onClick={() => setDlqOpen(true)}
+                                className="flex items-center gap-4 p-3 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-amber-500/30 rounded-2xl transition-all group text-left"
+                            >
+                                <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 group-hover:scale-110 transition-transform">
+                                    <Archive size={20} />
+                                </div>
+                                <div className="pr-4">
+                                    <div className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                                        Delivery Recovery Vault
+                                        {dlqCount > 0 && (
+                                            <span className="bg-amber-500 text-slate-950 text-[9px] font-black px-1.5 py-0.5 rounded-full animate-pulse">
+                                                {dlqCount} NEW
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Failed Messages</div>
+                                </div>
+                            </button>
+                        </div>
                     </div>
+
+                    <DeadLetterQueue 
+                        isOpen={dlqOpen} 
+                        onClose={() => setDlqOpen(false)} 
+                        onCountChange={(count) => setDlqCount(count)}
+                    />
                 </div>
             </div>
         </div>
