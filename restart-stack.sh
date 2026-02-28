@@ -3,14 +3,27 @@
 # PluralMatrix Restart Helper Script 🚀
 # Wrapper around docker-compose for pre-flight permissions and SQL setup.
 
-# Load configuration from .env
-if [ -f .env ]; then
-  export $(grep -v '^#' .env | xargs)
-fi
-
-PROJECT_NAME=${PROJECT_NAME:-pluralmatrix}
+# 1. Prerequisite Checks
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
+
+if [ ! -f .env ]; then
+  echo "❌ Error: .env file not found!"
+  echo "Please run './setup.sh' first to configure your environment."
+  exit 1
+fi
+
+for tool in docker docker-compose grep cut tr; do
+  if ! command -v $tool &> /dev/null; then
+    echo "❌ Error: Required tool '$tool' is not installed."
+    exit 1
+  fi
+done
+
+# Load configuration from .env
+export $(grep -v '^#' .env | xargs)
+
+PROJECT_NAME=${PROJECT_NAME:-pluralmatrix}
 
 echo "🚀 Starting $PROJECT_NAME Stack Refresh via Docker Compose..."
 
