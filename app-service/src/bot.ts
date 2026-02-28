@@ -200,7 +200,7 @@ const resolveGhostMessage = async (bridgeInstance: Bridge, botClient: any, roomI
 // Configuration
 const REGISTRATION_PATH = "/data/app-service-registration.yaml";
 const HOMESERVER_URL = process.env.SYNAPSE_URL || "http://localhost:8008";
-const DOMAIN = process.env.SYNAPSE_SERVER_NAME || process.env.SYNAPSE_DOMAIN || "localhost";
+const DOMAIN = process.env.SYNAPSE_DOMAIN || process.env.SYNAPSE_SERVER_NAME || "localhost";
 
 // Placeholder for the bridge instance
 let bridge: Bridge;
