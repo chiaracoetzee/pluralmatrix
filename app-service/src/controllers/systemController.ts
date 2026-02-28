@@ -4,6 +4,7 @@ import { AuthRequest } from '../auth';
 import { SystemSchema } from '../schemas/member';
 import { proxyCache } from '../services/cache';
 import { emitSystemUpdate, systemEvents } from '../services/events';
+import { messageQueue } from '../services/queue/MessageQueue';
 
 import { ensureUniqueSlug } from '../utils/slug';
 import { maskMxid } from '../utils/privacy';
@@ -294,3 +295,32 @@ export const setPrimaryAccount = async (req: AuthRequest, res: Response) => {
         res.status(500).json({ error: 'Failed to set primary account' });
     }
 };
+
+export const getDeadLetters = async (req: AuthRequest, res: Response) => {
+    const mxid = req.user!.mxid;
+    // We filter dead letters to only show ones where the sender was this user's primary/linked account
+    // For simplicity right now, we return all DLs for the ghost user ID prefix matching their system
+    try {
+        const link = await prisma.accountLink.findUnique({
+            where: { matrixId: mxid },
+            include: { system: true }
+        });
+        
+        if (!link) return res.json([]);
+
+        const allDl = messageQueue.getDeadLetters();
+        const userDl = allDl.filter(dl => dl.ghostUserId.startsWith(`@_plural_${link.system.slug}_`));
+        
+        res.json(userDl);
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to fetch dead letters' });
+    }
+};
+
+export const deleteDeadLetter = async (req: AuthRequest, res: Response) => {
+    // Basic auth check already done by middleware
+    const { id } = req.params;
+    messageQueue.deleteDeadLetter(id as string);
+    res.json({ success: true });
+};
+

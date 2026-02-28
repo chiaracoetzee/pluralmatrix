@@ -1,5 +1,7 @@
 import { getBridge, cryptoManager } from '../bot';
 import { sendEncryptedEvent } from '../crypto/encryption';
+import { messageQueue } from './queue/MessageQueue';
+import { registerDevice } from '../crypto/crypto-utils';
 
 const DOMAIN = process.env.SYNAPSE_DOMAIN || "localhost";
 
@@ -17,10 +19,11 @@ export interface GhostMessageOptions {
         avatarUrl?: string | null;
     };
     asToken: string;
+    senderId: string;
 }
 
 export const sendGhostMessage = async (options: GhostMessageOptions) => {
-    const { roomId, cleanContent, system, member, asToken } = options;
+    const { roomId, cleanContent, system, member, asToken, senderId } = options;
     
     try {
         const bridge = getBridge();
@@ -40,6 +43,10 @@ export const sendGhostMessage = async (options: GhostMessageOptions) => {
                 console.error("[GhostService] Registration error:", e.message);
             }
         }
+
+        // Ensure cryptographic device is registered before enqueueing
+        const machine = await cryptoManager.getMachine(ghostUserId);
+        await registerDevice(intent, machine.deviceId.toString());
         
         const finalDisplayName = system.systemTag 
             ? `${member.displayName || member.name} ${system.systemTag}`
@@ -58,11 +65,9 @@ export const sendGhostMessage = async (options: GhostMessageOptions) => {
             if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
         }
         
-        // Dispatch ghost message via encrypted helper
-        await sendEncryptedEvent(intent, roomId, "m.room.message", {
-            msgtype: "m.text",
-            body: cleanContent
-        }, cryptoManager, asToken);
+        // Pass the prepared message into the Dead Letter Queue
+        messageQueue.enqueue(roomId, senderId, intent, cleanContent);
+
     } catch (e: any) { 
         console.error("[GhostService] Error:", e.message || e);
         throw e;

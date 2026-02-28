@@ -5,6 +5,7 @@ import path from 'path';
 import { startMatrixBot } from './bot';
 import routes from './routes';
 import * as gatekeeperController from './controllers/gatekeeperController';
+import { messageQueue } from './services/queue/MessageQueue';
 
 const app = express();
 const PORT = process.env.APP_PORT || 9000;

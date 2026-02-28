@@ -39,7 +39,8 @@ export const checkMessage = async (req: Request, res: Response) => {
                             displayName: member.displayName,
                             avatarUrl: member.avatarUrl
                         },
-                        asToken: asToken
+                        asToken: asToken,
+                        senderId: sender
                     }).catch(e => {
                         console.error("[Gatekeeper] Failed to send ghost message:", e.message);
                     });
@@ -66,7 +67,8 @@ export const checkMessage = async (req: Request, res: Response) => {
                             displayName: autoMember.displayName,
                             avatarUrl: autoMember.avatarUrl
                         },
-                        asToken: asToken
+                        asToken: asToken,
+                        senderId: sender
                     }).catch(e => {
                         console.error("[Gatekeeper] Failed to send autoproxy ghost message:", e.message);
                     });

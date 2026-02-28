@@ -14,4 +14,8 @@ router.post('/links/primary', systemController.setPrimaryAccount);
 router.delete('/links/:mxid', systemController.deleteLink);
 router.patch('/', systemController.updateSystem);
 
+// DLQ Routes
+router.get('/dead_letters', systemController.getDeadLetters);
+router.delete('/dead_letters/:id', systemController.deleteDeadLetter);
+
 export default router;

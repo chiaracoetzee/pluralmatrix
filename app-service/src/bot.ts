@@ -12,6 +12,7 @@ import { TransactionRouter } from "./crypto/TransactionRouter";
 import { DeviceLists, UserId, RoomId } from "@matrix-org/matrix-sdk-crypto-nodejs";
 import { sendEncryptedEvent } from "./crypto/encryption";
 import { processCryptoRequests, registerDevice } from "./crypto/crypto-utils";
+import { messageQueue } from "./services/queue/MessageQueue";
 
 // Initialize Prisma
 export const prisma = new PrismaClient();
@@ -863,14 +864,14 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
 
                     try { await intent.setDisplayName(finalDisplayName); if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl); } catch (e) {}
 
-                    const payload: any = { msgtype: "m.text", body: cleanContent };
+                    let relatesTo: any = undefined;
                     if (event.content["m.relates_to"]) {
-                        const relatesTo = { ...event.content["m.relates_to"] } as any;
+                        relatesTo = { ...event.content["m.relates_to"] } as any;
                         if (relatesTo.rel_type === "m.replace") { delete relatesTo.rel_type; delete relatesTo.event_id; }
-                        if (Object.keys(relatesTo).length > 0) payload["m.relates_to"] = relatesTo;
+                        if (Object.keys(relatesTo).length === 0) relatesTo = undefined;
                     }
 
-                    await sendEncryptedEvent(intent, roomId, "m.room.message", payload, cryptoManager, currentAsToken);
+                    messageQueue.enqueue(roomId, sender, intent, cleanContent, relatesTo);
                 } catch (e) {}
                 return;
             }
@@ -906,14 +907,14 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
 
                 try { await intent.setDisplayName(finalDisplayName); if (autoMember.avatarUrl) await intent.setAvatarUrl(autoMember.avatarUrl); } catch (e) {}
 
-                const payload: any = { msgtype: "m.text", body: cleanContent };
+                let relatesTo: any = undefined;
                 if (event.content["m.relates_to"]) {
-                    const relatesTo = { ...event.content["m.relates_to"] } as any;
+                    relatesTo = { ...event.content["m.relates_to"] } as any;
                     if (relatesTo.rel_type === "m.replace") { delete relatesTo.rel_type; delete relatesTo.event_id; }
-                    if (Object.keys(relatesTo).length > 0) payload["m.relates_to"] = relatesTo;
+                    if (Object.keys(relatesTo).length === 0) relatesTo = undefined;
                 }
 
-                await sendEncryptedEvent(intent, roomId, "m.room.message", payload, cryptoManager, currentAsToken);
+                messageQueue.enqueue(roomId, sender, intent, cleanContent, relatesTo);
             } catch (e) {}
             return;
         }
