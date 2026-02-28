@@ -28,17 +28,18 @@ echo "🐘 Starting database..."
 sudo docker-compose up -d postgres
 
 echo "🐘 Ensuring plural_db and plural_app user exist..."
-PG_PASS=$(grep POSTGRES_PASSWORD .env | cut -d '=' -f2)
+PG_PASS=$(grep POSTGRES_PASSWORD .env | cut -d '=' -f2 | tr -d '\r')
 
-# Wait for postgres to be ready by attempting the SQL setup (retrying if it fails)
+# Wait for postgres to be ready by attempting a simple query
 until sudo docker exec ${PROJECT_NAME}-postgres psql -U synapse -d template1 -c "SELECT 1" >/dev/null 2>&1; do
   echo -n "."
   sleep 1
 done
 
-# Perform SQL initialization
+# Perform SQL initialization using multi-line -c commands (more robust than heredocs in docker exec)
 sudo docker exec ${PROJECT_NAME}-postgres psql -U synapse -d template1 -c "CREATE DATABASE plural_db" 2>/dev/null || true
-sudo docker exec ${PROJECT_NAME}-postgres psql -U synapse -d template1 <<EOF
+
+sudo docker exec ${PROJECT_NAME}-postgres psql -U synapse -d template1 -c "
 DO \$\$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'plural_app') THEN
@@ -47,14 +48,28 @@ BEGIN
         ALTER USER plural_app WITH PASSWORD '$PG_PASS';
     END IF;
 END \$\$;
-EOF
-sudo docker exec ${PROJECT_NAME}-postgres psql -U synapse -d plural_db <<EOF
+"
+
+sudo docker exec ${PROJECT_NAME}-postgres psql -U synapse -d plural_db -c "
 GRANT ALL PRIVILEGES ON DATABASE plural_db TO plural_app;
 ALTER SCHEMA public OWNER TO plural_app;
 GRANT ALL ON SCHEMA public TO plural_app;
-EOF
+"
 
 echo " Ready!"
+
+echo "🔍 Validating database configuration..."
+until sudo docker exec ${PROJECT_NAME}-postgres psql -U synapse -d plural_db -c "SELECT 1" >/dev/null 2>&1; do
+  echo -n "d"
+  sleep 1
+done
+
+until sudo docker exec ${PROJECT_NAME}-postgres psql -U synapse -d template1 -tAc "SELECT 1 FROM pg_roles WHERE rolname='plural_app'" | grep -q 1; do
+  echo -n "u"
+  sleep 1
+done
+
+echo " Database and user verified!"
 
 # 3. Bring up the rest of the stack
 echo "📦 Building and starting services..."
