@@ -29,11 +29,27 @@ export class OlmMachineManager {
         const sanitizedId = userId.replace(/[^a-zA-Z0-9]/g, "_");
         const storePath = path.join(this.storageRoot, sanitizedId);
         const deviceId = process.env.CRYPTO_DEVICE_ID || "PLURAL_CTX_V9"; 
+        const deviceIdFile = path.join(storePath, ".device_id");
 
-        // Ensure store directory exists
+        // Ensure store directory exists and check for device ID changes
         if (!fs.existsSync(storePath)) {
             fs.mkdirSync(storePath, { recursive: true });
+        } else {
+            let storedDeviceId = "";
+            if (fs.existsSync(deviceIdFile)) {
+                storedDeviceId = fs.readFileSync(deviceIdFile, "utf-8").trim();
+            }
+            
+            // If we have a stored ID and it differs from the current one, wipe the state
+            if (storedDeviceId && storedDeviceId !== deviceId) {
+                console.log(`[Crypto] Device ID changed from ${storedDeviceId} to ${deviceId}. Wiping crypto store for ${userId}...`);
+                fs.rmSync(storePath, { recursive: true, force: true });
+                fs.mkdirSync(storePath, { recursive: true });
+            }
         }
+
+        // Record the active device ID
+        fs.writeFileSync(deviceIdFile, deviceId, "utf-8");
 
         // Automated Cross-Signing Bootstrapping via Rust Sidecar
         // Must happen BEFORE OlmMachine.initialize to avoid sqlite locks
