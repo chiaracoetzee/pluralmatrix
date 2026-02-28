@@ -59,8 +59,6 @@ export async function sendEncryptedEvent(
         return intent.sendEvent(roomId, eventType, content);
     }
 
-    console.log(`[Crypto] Encrypting outbound message for ${ghostUserId} in ${roomId}`);
-
     try {
         const machine = await manager.getMachine(ghostUserId);
 
@@ -72,8 +70,7 @@ export async function sendEncryptedEvent(
         const rustUserIds = members.map((m: string) => new UserId(m));
         const rustRoomId = new RoomId(roomId);
 
-        console.log(`[Crypto] Step A: Discovery & Identity Phase...`);
-        
+        // Step A: Discovery & Identity Phase
         // UNIFIED DISCOVERY HACK: Force the SDK to recognize device list changes.
         // This is necessary because Appservice users don't receive /sync updates.
         const changedDevices = new DeviceLists(rustUserIds, []);
@@ -84,28 +81,27 @@ export async function sendEncryptedEvent(
         await processCryptoRequests(machine, intent, asToken);
         
         if (isNewDevice) {
-            console.log(`[Crypto]   - New ghost identity. Waiting for HS propagation (1s)...`);
+            // New ghost identity: Wait for HS propagation
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
 
         // Pass 2: CRITICAL - Explicitly execute the KeysClaimRequest for missing sessions
-        console.log(`[Crypto]   - Ensuring Olm sessions exist for recipients...`);
         const missingSessionsReq = await machine.getMissingSessions(rustUserIds);
         if (missingSessionsReq) {
-            console.log(`[Crypto]   - Found missing Olm sessions. Dispatching KeysClaim...`);
+            // Found missing Olm sessions: Dispatching KeysClaim
             await dispatchRequest(machine, intent, asToken, missingSessionsReq);
             // Drain any background discovery triggered by the claim
             await processCryptoRequests(machine, intent, asToken);
         }
         
-        console.log(`[Crypto] Step B: Key Sharing Phase...`);
+        // Step B: Key Sharing Phase
         const settings = new EncryptionSettings();
         settings.onlyAllowTrustedDevices = false;
         
         const shareRequests = await (machine as any).shareRoomKey(rustRoomId, rustUserIds, settings);
 
         if (shareRequests && shareRequests.length > 0) {
-            console.log(`[Crypto]   - Sharing Megolm keys with ${shareRequests.length} payload(s)...`);
+            // Sharing Megolm keys with recipients
             for (const req of shareRequests) {
                 try {
                     await dispatchToDevice(intent, asToken, ghostUserId, req);
@@ -118,8 +114,7 @@ export async function sendEncryptedEvent(
         // Pass 3: Final cleanup
         await processCryptoRequests(machine, intent, asToken);
 
-        // 4. Finally encrypt
-        console.log(`[Crypto] Step C: Encrypting event...`);
+        // Step C: Finally encrypt
         const relatesTo = content["m.relates_to"];
         const contentToEncrypt = { ...content };
         
@@ -130,7 +125,7 @@ export async function sendEncryptedEvent(
             encryptedPayload["m.relates_to"] = relatesTo;
         }
         
-        console.log(`[Crypto] Step D: Sending encrypted event to ${roomId}`);
+        // Step D: Send encrypted event
         return intent.sendEvent(roomId, "m.room.encrypted", encryptedPayload);
 
     } catch (e: any) {

@@ -6,10 +6,11 @@ import { proxyCache } from '../services/cache';
 import { emitSystemUpdate, systemEvents } from '../services/events';
 
 import { ensureUniqueSlug } from '../utils/slug';
+import { maskMxid } from '../utils/privacy';
 
 export const streamSystemEvents = async (req: AuthRequest, res: Response) => {
     const mxid = req.user!.mxid;
-    console.log(`[SSE] Client connected: ${mxid}`);
+    console.log(`[SSE] Client connected: ${maskMxid(mxid)}`);
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -32,7 +33,7 @@ export const streamSystemEvents = async (req: AuthRequest, res: Response) => {
     systemEvents.on('update', onUpdate);
 
     req.on('close', () => {
-        console.log(`[SSE] Client disconnected: ${mxid}`);
+        console.log(`[SSE] Client disconnected: ${maskMxid(mxid)}`);
         clearInterval(heartbeatInterval);
         systemEvents.off('update', onUpdate);
     });

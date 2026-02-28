@@ -30,10 +30,9 @@ export const sendGhostMessage = async (options: GhostMessageOptions) => {
         }
 
         const ghostUserId = `@_plural_${system.slug}_${member.slug}:${DOMAIN}`;
-        console.log(`[GhostService] Sending ghost message as ${ghostUserId}`);
-        
         const intent = bridge.getIntent(ghostUserId);
         
+        // Ensure ghost user is registered
         try { 
             await intent.ensureRegistered(); 
         } catch(e: any) {
@@ -59,13 +58,11 @@ export const sendGhostMessage = async (options: GhostMessageOptions) => {
             if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
         }
         
-        // USE sendEncryptedEvent for ghosts too
+        // Dispatch ghost message via encrypted helper
         await sendEncryptedEvent(intent, roomId, "m.room.message", {
             msgtype: "m.text",
             body: cleanContent
         }, cryptoManager, asToken);
-
-        console.log(`[GhostService] Ghost message sent!`);
     } catch (e: any) { 
         console.error("[GhostService] Error:", e.message || e);
         throw e;

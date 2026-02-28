@@ -1,7 +1,8 @@
 import { prisma } from './bot';
 import { getBridge } from './bot';
 import archiver from 'archiver';
-import AdmZip from 'adm-zip';
+import ADMZip from 'adm-zip';
+import { maskMxid } from './utils/privacy';
 
 /**
  * Maps decorative, Greek, or Faux Cyrillic characters to their closest Latin equivalents.
@@ -101,7 +102,7 @@ export const migrateAvatar = async (url: string): Promise<string | null> => {
 
         return mxcUrl;
     } catch (e) {
-        console.error(`[Importer] Failed to migrate avatar from ${url}:`, e);
+        console.error(`[Importer] Failed to migrate an avatar:`, e);
         return null;
     }
 };
@@ -122,7 +123,7 @@ export const syncGhostProfile = async (member: any, system: any) => {
             ? `${member.displayName || member.name} ${system.systemTag}`
             : (member.displayName || member.name);
 
-        console.log(`[Ghost] Syncing global profile for ${ghostUserId} (${finalDisplayName})`);
+        console.log(`[Ghost] Syncing global profile for ${ghostUserId}`);
         
         await intent.ensureRegistered();
         await intent.setDisplayName(finalDisplayName);
@@ -170,7 +171,7 @@ import { ensureUniqueSlug } from './utils/slug';
  * Main importer logic for PluralKit JSON.
  */
 export const importFromPluralKit = async (mxid: string, jsonData: any) => {
-    console.log(`[Importer] Starting import for ${mxid}`);
+    console.log(`[Importer] Starting import for ${maskMxid(mxid)}`);
 
     const isPluralMatrix = jsonData.config?.pluralmatrix_version !== undefined;
     const localpart = mxid.split(':')[0].substring(1);
@@ -312,11 +313,11 @@ export const importFromPluralKit = async (mxid: string, jsonData: any) => {
                 console.log(`[Importer] Progress: ${importedCount} members...`);
             }
         } catch (memberError) {
-            console.error(`[Importer] Failed to import member ${pkMember.name}:`, memberError);
+            console.error(`[Importer] Failed to import a member:`, memberError);
         }
     }
 
-    console.log(`[Importer] Successfully imported ${importedCount} members for ${mxid}`);
+    console.log(`[Importer] Successfully imported ${importedCount} members for ${maskMxid(mxid)}`);
     return importedCount;
 };
 
@@ -468,7 +469,7 @@ export const exportAvatarsZip = async (mxid: string, stream: NodeJS.WritableStre
             });
 
             if (!response.ok) {
-                console.warn(`[Export] Failed to download avatar for ${member.name} (${member.avatarUrl}): ${response.status}`);
+                console.warn(`[Export] Failed to download an avatar: ${response.status}`);
                 continue;
             }
 

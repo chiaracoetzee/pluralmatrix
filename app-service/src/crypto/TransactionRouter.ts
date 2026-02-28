@@ -1,5 +1,6 @@
 import { OlmMachineManager } from "./OlmMachineManager";
 import { OlmMachine, UserId, RoomId, DeviceLists } from "@matrix-org/matrix-sdk-crypto-nodejs";
+import { maskMxid } from "../utils/privacy";
 
 // Minimal event interface
 interface MatrixEvent {
@@ -86,16 +87,15 @@ export class TransactionRouter {
 
     private async routeTimelineEventToBot(event: MatrixEvent) {
         try {
-            console.log(`[Router] Attempting decryption of ${event.event_id} in ${event.room_id}`);
+            // Attempting decryption of room event
             const machine = await this.manager.getMachine(this.botUserId);
             
             const eventJson = JSON.stringify(event);
             const roomId = new RoomId(event.room_id!);
             const decrypted = await machine.decryptRoomEvent(eventJson, roomId);
             
-            console.log(`[Router] SUCCESS: Decrypted event ${event.event_id}`);
-            
             if (decrypted.event) {
+                // Decryption successful: Processing cleartext event
                 const clearEvent = JSON.parse(decrypted.event);
                 clearEvent.room_id = event.room_id;
                 clearEvent.event_id = event.event_id;
@@ -110,7 +110,6 @@ export class TransactionRouter {
                 const machine = await this.manager.getMachine(this.botUserId);
                 await machine.updateTrackedUsers([new UserId(event.sender)]);
                 await this.onRequestCallback(this.botUserId);
-                console.log(`[Router] Triggered tracking nudge for ${event.sender}`);
             } catch (nudgeErr) {
                 // Ignore nudge failures
             }
@@ -126,19 +125,14 @@ export class TransactionRouter {
 
             const toDeviceEventsJson = JSON.stringify([clientEvent]);
             
-            console.log(`[Router] Feeding to-device event ${event.type} to machine for ${targetUserId}...`);
-            const result = await machine.receiveSyncChanges(
+            await machine.receiveSyncChanges(
                 toDeviceEventsJson, 
                 new DeviceLists(), 
                 {}, 
                 []
             );
-            
-            if (result) {
-                console.log(`[Router] receiveSyncChanges RESULT: ${result}`);
-            }
         } catch (e) {
-             console.error(`[Router] Failed to route to-device event to ${targetUserId}:`, e);
+             console.error(`[Router] Failed to route to-device event to ${maskMxid(targetUserId)}:`, e);
         }
     }
 }

@@ -28,9 +28,7 @@ export const checkMessage = async (req: Request, res: Response) => {
                     const cleanContent = body.slice(tag.prefix.length, body.length - (tag.suffix?.length || 0)).trim();
                     if (!cleanContent) continue;
 
-                    console.log(`[Gatekeeper] PROXY MATCH! Member: ${member.name} (${member.slug}) for sender ${sender}`);
-
-                    // Trigger Ghost using the global Appservice Token
+                    // Match found: Triggering ghost message dispatch
                     sendGhostMessage({
                         roomId: room_id,
                         cleanContent,
@@ -57,8 +55,7 @@ export const checkMessage = async (req: Request, res: Response) => {
             if (autoMember) {
                 const cleanContent = body.trim();
                 if (cleanContent) {
-                    console.log(`[Gatekeeper] AUTOPROXY MATCH! Member: ${autoMember.name} (${autoMember.slug}) for sender ${sender}`);
-
+                    // Match found: Triggering autoproxy message dispatch
                     sendGhostMessage({
                         roomId: room_id,
                         cleanContent,

@@ -6,6 +6,7 @@ import { marked } from "marked";
 import { proxyCache } from "./services/cache";
 import { emitSystemUpdate } from "./services/events";
 import { ensureUniqueSlug } from "./utils/slug";
+import { maskMxid } from "./utils/privacy";
 import { OlmMachineManager } from "./crypto/OlmMachineManager";
 import { TransactionRouter } from "./crypto/TransactionRouter";
 import { DeviceLists, UserId, RoomId } from "@matrix-org/matrix-sdk-crypto-nodejs";
@@ -302,7 +303,7 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
         if (membership === "invite") {
             // Main Bot invited
             if (targetUserId === botUserId) {
-                console.log(`[Bot] Received invite to ${roomId} from ${sender}. Joining...`);
+                console.log(`[Bot] Received invite to ${roomId} from ${maskMxid(sender)}. Joining...`);
                 try {
                     await bridgeInstance.getIntent().join(roomId);
                     console.log(`[Bot] Successfully joined ${roomId}`);
@@ -314,7 +315,7 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
 
             // Managed Ghost invited
             if (targetUserId.startsWith("@_plural_")) {
-                console.log(`[Ghost] ${targetUserId} received invite to ${roomId} from ${sender}. Implementing auto-forwarding...`);
+                console.log(`[Ghost] ${targetUserId} received invite to ${roomId}. Implementing auto-forwarding...`);
                 const ghostIntent = bridgeInstance.getIntent(targetUserId);
                 
                 try {
@@ -343,7 +344,8 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                                 const ghostName = ghostProfile.displayname || targetUserId;
                                 const roomName = `${senderName}, ${ghostName}`;
                                 
-                                console.log(`[Ghost] Setting room name to: ${roomName}`);
+                                // Match found: Setting room name
+                                console.log(`[Ghost] Setting room name in ${roomId}`);
                                 await ghostIntent.setRoomName(roomId, roomName);
                             } catch (e: any) {
                                 console.warn(`[Ghost] Failed to set room name in ${roomId}:`, e.message);
@@ -357,7 +359,7 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                                     console.warn(`[Ghost] Failed to invite primary account (already in room?):`, e.message);
                                 }
                             } else {
-                                console.log(`[Ghost] Owner ${sender} invited managed ghost. Skipping owner invite, inviting bot.`);
+                                console.log(`[Ghost] Owner ${maskMxid(sender)} invited managed ghost. Skipping owner invite, inviting bot.`);
                             }
                             
                             // 2. Invite PluralBot
@@ -459,7 +461,7 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                 try {
                     const targetEvent = await (bridgeInstance.getBot().getClient() as any).getEvent(roomId, targetEventId);
                     if (targetEvent && targetEvent.sender.startsWith(`@_plural_${system.slug}_`)) {
-                        console.log(`[Janitor] Deleting message ${targetEventId} via reaction from ${sender}`);
+                        console.log(`[Janitor] Deleting message ${targetEventId} via reaction from ${maskMxid(sender)}`);
                         await safeRedact(bridgeInstance, roomId, targetEventId, "UserRequest", bridgeInstance.getIntent(targetEvent.sender));
                         await safeRedact(bridgeInstance, roomId, eventId, "Cleanup");
                     }
@@ -722,7 +724,7 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                     data: { autoproxyId: null }
                 });
                 proxyCache.invalidate(sender);
-                console.log(`[EVENT] Emitting update for ${sender} (OFF)`);
+                console.log(`[EVENT] Emitting update for ${maskMxid(sender)} (OFF)`);
                 emitSystemUpdate(sender);
                 await sendEncryptedText(bridgeInstance.getIntent(), roomId, "Autoproxy disabled.");
                 return;
@@ -739,7 +741,7 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                 data: { autoproxyId: member.id }
             });
             proxyCache.invalidate(sender);
-            console.log(`[EVENT] Emitting update for ${sender} (${member.slug})`);
+            console.log(`[EVENT] Emitting update for ${maskMxid(sender)} (${member.slug})`);
             emitSystemUpdate(sender);
             await sendRichText(bridgeInstance.getIntent(), roomId, `Autoproxy enabled for **${member.name}**.`);
             return;
@@ -839,8 +841,7 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                 const cleanContent = body.slice(tag.prefix.length, body.length - (tag.suffix?.length || 0)).trim();
                 if (!cleanContent) return;
 
-                console.log(`[Janitor] Proxying for ${member.name} in ${roomId}`);
-                
+                // Match found: Proxying for member in room
                 await safeRedact(bridgeInstance, roomId, eventId, "PluralProxy");
                 if (isEdit && originalEventId !== eventId) {
                     await safeRedact(bridgeInstance, roomId, originalEventId, "PluralProxyOriginal");
@@ -883,8 +884,7 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
             const cleanContent = body.trim();
             if (!cleanContent) return;
 
-            console.log(`[Janitor] Autoproxying for ${autoMember.name} in ${roomId}`);
-            
+            // Match found: Autoproxying for member in room
             await safeRedact(bridgeInstance, roomId, eventId, "PluralAutoproxy");
             if (isEdit && originalEventId !== eventId) {
                 await safeRedact(bridgeInstance, roomId, originalEventId, "PluralAutoproxyOriginal");

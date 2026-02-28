@@ -14,7 +14,8 @@ app.use(bodyParser.json());
 
 // Request Logger
 app.use((req, res, next) => {
-    console.log(`[API] ${req.method} ${req.url}`);
+    const url = req.url.split('?')[0];
+    console.log(`[API] ${req.method} ${url}`);
     next();
 });
 
