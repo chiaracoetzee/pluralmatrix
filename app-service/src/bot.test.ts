@@ -73,6 +73,9 @@ describe('Bot Event Handler', () => {
         cryptoManager.getMachine = jest.fn().mockResolvedValue({
             deviceId: { toString: () => "MOCK_DEVICE" }
         });
+
+        // Ensure robust default profile mock
+        mockBotClient.getUserProfile = jest.fn().mockResolvedValue({ displayname: "Mock User" });
     });
 
     describe('Janitor Logic', () => {
@@ -154,6 +157,65 @@ describe('Bot Event Handler', () => {
             expect(ghostInvite).toHaveBeenCalledWith(roomId, primaryUser);
             expect(ghostInvite).toHaveBeenCalledWith(roomId, "@plural_bot:localhost");
             expect(ghostSetTopic).toHaveBeenCalledWith(roomId, expect.stringContaining("Waiting for account owner"));
+        });
+
+        it('should handle self-DMs by skipping redundant owner invite and topic', async () => {
+            const invitedGhost = "@_plural_seraphim_lily:localhost";
+            const ownerUser = "@chiara:localhost";
+            const req = new Request({
+                data: {
+                    type: "m.room.member",
+                    room_id: roomId,
+                    sender: ownerUser,
+                    state_key: invitedGhost,
+                    content: { membership: "invite" }
+                }
+            });
+
+            // Mock intents
+            const ghostJoin = jest.fn().mockResolvedValue({});
+            const ghostInvite = jest.fn().mockResolvedValue({});
+            const ghostSetName = jest.fn().mockResolvedValue({});
+            const ghostSetTopic = jest.fn().mockResolvedValue({});
+            
+            const mockGhostIntent = {
+                ...mockIntent,
+                join: ghostJoin,
+                invite: ghostInvite,
+                setRoomName: ghostSetName,
+                setRoomTopic: ghostSetTopic,
+            };
+
+            const localMockBridge = {
+                ...mockBridge,
+                getIntent: jest.fn((userId) => {
+                    if (userId === invitedGhost) return mockGhostIntent;
+                    return mockIntent;
+                })
+            };
+
+            // Mock prisma lookup for system - sender IS an account link
+            (mockPrisma.system.findUnique as jest.Mock).mockResolvedValue({
+                id: "sys1",
+                slug: "seraphim",
+                accountLinks: [
+                    { matrixId: ownerUser, isPrimary: true }
+                ]
+            });
+
+            await handleEvent(req as any, undefined, localMockBridge as any, mockPrisma as any);
+
+            expect(ghostJoin).toHaveBeenCalledWith(roomId);
+            expect(ghostSetName).toHaveBeenCalledWith(roomId, "Mock User, Mock User"); // Profiles mocked at top
+            
+            // Should NOT invite owner (already there)
+            expect(ghostInvite).not.toHaveBeenCalledWith(roomId, ownerUser);
+            
+            // SHOULD still invite bot
+            expect(ghostInvite).toHaveBeenCalledWith(roomId, "@plural_bot:localhost");
+            
+            // Should NOT set the "Waiting" topic
+            expect(ghostSetTopic).not.toHaveBeenCalled();
         });
     });
 

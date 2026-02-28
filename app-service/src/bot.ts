@@ -331,11 +331,11 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                     });
 
                     if (system) {
-                        // Find primary account
+                        const isOwnerInviting = system.accountLinks.some(l => l.matrixId.toLowerCase() === sender.toLowerCase());
                         const primaryLink = system.accountLinks.find(l => l.isPrimary) || system.accountLinks[0];
+                        
                         if (primaryLink) {
                             // 1. Set Room Name: "[Sender Name], [Ghost Name]"
-                            // Do this BEFORE invites so the notification shows the correct name
                             try {
                                 const senderProfile = await (ghostIntent as any).matrixClient.getUserProfile(sender);
                                 const ghostProfile = await (ghostIntent as any).matrixClient.getUserProfile(targetUserId);
@@ -349,10 +349,18 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                                 console.warn(`[Ghost] Failed to set room name in ${roomId}:`, e.message);
                             }
 
-                            console.log(`[Ghost] Inviting primary account ${primaryLink.matrixId} and bot to ${roomId}`);
+                            if (!isOwnerInviting) {
+                                console.log(`[Ghost] Inviting primary account ${primaryLink.matrixId} and bot to ${roomId}`);
+                                try {
+                                    await ghostIntent.invite(roomId, primaryLink.matrixId);
+                                } catch (e: any) {
+                                    console.warn(`[Ghost] Failed to invite primary account (already in room?):`, e.message);
+                                }
+                            } else {
+                                console.log(`[Ghost] Owner ${sender} invited managed ghost. Skipping owner invite, inviting bot.`);
+                            }
                             
-                            // 2. Invite Primary Account and Bot
-                            await ghostIntent.invite(roomId, primaryLink.matrixId);
+                            // 2. Invite PluralBot
                             await ghostIntent.invite(roomId, botUserId);
                             
                             // Force Bot to join immediately (Don't wait for invite event loopback)
@@ -368,11 +376,13 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                             // 3. Try to sync power levels if ghost was already promoted by the inviter
                             await syncPowerLevels(bridgeInstance, roomId, targetUserId, prismaClient);
 
-                            // 4. Set Room Topic: Temporary notice until owner arrives
-                            try {
-                                await ghostIntent.setRoomTopic(roomId, "PluralMatrix: Waiting for account owner to join...");
-                            } catch (e: any) {
-                                console.warn(`[Ghost] Failed to set room topic in ${roomId}:`, e.message);
+                            if (!isOwnerInviting) {
+                                // 4. Set Room Topic: Temporary notice until owner arrives
+                                try {
+                                    await ghostIntent.setRoomTopic(roomId, "PluralMatrix: Waiting for account owner to join...");
+                                } catch (e: any) {
+                                    console.warn(`[Ghost] Failed to set room topic in ${roomId}:`, e.message);
+                                }
                             }
                         }
                     }
