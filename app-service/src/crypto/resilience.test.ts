@@ -88,7 +88,7 @@ describe('Crypto Resilience Utilities', () => {
             // Fast mock response
             mockDoRequest.mockResolvedValue({});
 
-            // Fire off 5 registrations (Max is 3)
+            // Fire off 5 registrations (Semaphore limit is 1)
             const results = await Promise.all([
                 registerDevice(mockIntent as any, "DEV1"),
                 registerDevice(mockIntent as any, "DEV2"),
