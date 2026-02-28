@@ -51,7 +51,7 @@ services:
       - APP_PORT=${APP_PORT:-9000}
     volumes:
       - ./synapse/config/app-service-registration.yaml:/data/app-service-registration.yaml
-      - ./app-service/data:/app/data
+      - app_service_data:/app/data
     depends_on:
       postgres:
         condition: service_started
@@ -78,3 +78,4 @@ networks:
 
 volumes:
   postgres_data:
+  app_service_data:
