@@ -1,15 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { X, Save, Plus, Trash2, Camera } from 'lucide-react';
 import { memberService } from '../services/api';
 import { getAvatarUrl } from '../utils/matrix';
 
 interface MemberEditorProps {
     member?: any;
+    isReadOnly?: boolean;
     onSave: () => void;
     onCancel: () => void;
 }
 
-const MemberEditor: React.FC<MemberEditorProps> = ({ member, onSave, onCancel }) => {
+const MemberEditor: React.FC<MemberEditorProps> = ({ member, isReadOnly, onSave, onCancel }) => {
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [formData, setFormData] = useState({
         slug: member?.slug || '',
         name: member?.name || '',
@@ -36,6 +38,14 @@ const MemberEditor: React.FC<MemberEditorProps> = ({ member, onSave, onCancel })
         newTags[index][field] = value;
         setFormData({ ...formData, proxyTags: newTags });
     };
+
+    // Auto-expand description textarea
+    useEffect(() => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+        }
+    }, [formData.description]);
 
     const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -95,159 +105,188 @@ const MemberEditor: React.FC<MemberEditorProps> = ({ member, onSave, onCancel })
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
             <div className="max-w-2xl w-full bg-matrix-light border border-white/10 rounded-2xl shadow-2xl my-8">
-                <form onSubmit={handleSubmit}>
+                <form onSubmit={isReadOnly ? (e) => e.preventDefault() : handleSubmit}>
                     <div className="p-6 border-b border-white/5 flex items-center justify-between">
-                        <h2 className="text-2xl font-bold">{member ? 'Edit System Member' : 'New System Member'}</h2>
+                        <h2 className="text-2xl font-bold">
+                            {isReadOnly ? 'System Member Profile' : (member ? 'Edit System Member' : 'New System Member')}
+                        </h2>
                         <button type="button" onClick={onCancel} className="p-2 hover:bg-white/5 rounded-full text-matrix-muted transition-colors">
                             <X size={20} />
                         </button>
                     </div>
 
-                    <div className="p-8 space-y-8">
-                        {/* Basic Info */}
-                        <div className="flex flex-col md:flex-row gap-8">
-                            <div className="space-y-4 flex-shrink-0">
-                                <div className="relative group w-32 h-32 rounded-2xl overflow-hidden bg-matrix-dark border-2 border-dashed border-white/10 flex items-center justify-center">
+                    <div className="p-8 space-y-8 text-slate-200">
+                        {/* Avatar & Basic Info */}
+                        <div className="flex flex-col md:flex-row gap-8 items-start">
+                            <div className="space-y-4 flex-shrink-0 mx-auto md:mx-0">
+                                <div className="relative group w-32 h-32 rounded-3xl overflow-hidden bg-matrix-dark border-2 border-white/5 shadow-inner">
                                     {formData.avatarUrl && getAvatarUrl(formData.avatarUrl) ? (
                                         <img src={getAvatarUrl(formData.avatarUrl)!} className="w-full h-full object-cover" alt="Avatar" />
                                     ) : (
-                                        <Camera className="text-matrix-muted" size={32} />
+                                        <div className="w-full h-full flex items-center justify-center text-matrix-muted">
+                                            <Camera size={40} />
+                                        </div>
                                     )}
-                                    <input 
-                                        type="file" 
-                                        accept="image/*" 
-                                        onChange={handleAvatarUpload}
-                                        className="absolute inset-0 opacity-0 cursor-pointer"
-                                    />
-                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none text-xs font-medium">
-                                        Change Photo
-                                    </div>
+                                    {!isReadOnly && (
+                                        <label className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer rounded-3xl">
+                                            <Camera className="text-white" size={24} />
+                                            <input type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" />
+                                        </label>
+                                    )}
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-matrix-muted mb-1">Color</label>
+
+                                {/* Restore original color picker placement */}
+                                <div className="space-y-1">
+                                    <label className="block text-[10px] font-bold text-matrix-muted uppercase tracking-widest">Theme Color</label>
                                     <div className="flex items-center space-x-2">
-                                        <input 
-                                            type="color" 
-                                            value={`#${formData.color.replace('#', '')}`}
-                                            onChange={(e) => setFormData({ ...formData, color: e.target.value.replace('#', '') })}
-                                            className="w-8 h-8 rounded cursor-pointer bg-transparent border-none"
-                                        />
-                                        <span className="text-xs font-mono">#{formData.color}</span>
+                                        {isReadOnly ? (
+                                            <div 
+                                                className="w-8 h-8 rounded-lg border border-white/10 shadow-inner"
+                                                style={{ backgroundColor: `#${formData.color.replace('#', '')}` }}
+                                            />
+                                        ) : (
+                                            <input 
+                                                type="color" 
+                                                value={`#${formData.color.replace('#', '')}`}
+                                                onChange={(e) => setFormData({ ...formData, color: e.target.value.replace('#', '') })}
+                                                className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border border-white/10 overflow-hidden shadow-inner p-0"
+                                            />
+                                        )}
+                                        <span className="text-xs font-mono text-slate-400">#{formData.color.toUpperCase()}</span>
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="flex-1 space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-matrix-muted mb-1">Short ID (for commands)</label>
-                                    <input 
-                                        className="matrix-input font-mono text-sm" 
-                                        value={formData.slug} 
-                                        onChange={(e) => setFormData({ ...formData, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })} 
-                                        placeholder="e.g. lily"
-                                        required 
-                                    />
-                                </div>
+                            <div className="flex-1 space-y-4 w-full">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-matrix-muted mb-1">Internal Name</label>
-                                        <input 
-                                            className="matrix-input" 
-                                            value={formData.name} 
-                                            onChange={(e) => setFormData({ ...formData, name: e.target.value })} 
-                                            placeholder="e.g. Lily"
-                                            required 
-                                        />
+                                    <div className="space-y-1">
+                                        <label className="block text-xs font-bold text-matrix-muted uppercase tracking-wider">Internal Name</label>
+                                        {isReadOnly ? (
+                                            <div className="p-3 bg-matrix-dark rounded-xl border border-white/5 text-sm">{formData.name}</div>
+                                        ) : (
+                                            <input 
+                                                className="matrix-input text-sm" 
+                                                value={formData.name} 
+                                                onChange={(e) => setFormData({ ...formData, name: e.target.value })} 
+                                                placeholder="e.g. Alice"
+                                                required 
+                                            />
+                                        )}
                                     </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-matrix-muted mb-1">Display Name (Override)</label>
-                                        <input 
-                                            className="matrix-input" 
-                                            value={formData.displayName} 
-                                            onChange={(e) => setFormData({ ...formData, displayName: e.target.value })} 
-                                        />
+                                    <div className="space-y-1">
+                                        <label className="block text-xs font-bold text-matrix-muted uppercase tracking-wider">Short ID (Slug)</label>
+                                        {isReadOnly ? (
+                                            <div className="p-3 bg-matrix-dark rounded-xl border border-white/5 text-sm font-mono">{formData.slug}</div>
+                                        ) : (
+                                            <input 
+                                                className="matrix-input text-sm font-mono" 
+                                                value={formData.slug} 
+                                                onChange={(e) => setFormData({ ...formData, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })} 
+                                                placeholder="e.g. alice"
+                                                required 
+                                            />
+                                        )}
                                     </div>
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-matrix-muted mb-1">Pronouns</label>
-                                    <input 
-                                        className="matrix-input" 
-                                        value={formData.pronouns} 
-                                        onChange={(e) => setFormData({ ...formData, pronouns: e.target.value })} 
-                                        placeholder="e.g. She/Her"
-                                    />
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-1">
+                                        <label className="block text-xs font-bold text-matrix-muted uppercase tracking-wider">Display Name</label>
+                                        {isReadOnly ? (
+                                            <div className="p-3 bg-matrix-dark rounded-xl border border-white/5 text-sm">{formData.displayName || 'None'}</div>
+                                        ) : (
+                                            <input 
+                                                className="matrix-input text-sm" 
+                                                value={formData.displayName} 
+                                                onChange={(e) => setFormData({ ...formData, displayName: e.target.value })} 
+                                                placeholder=""
+                                            />
+                                        )}
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="block text-xs font-bold text-matrix-muted uppercase tracking-wider">Pronouns</label>
+                                        {isReadOnly ? (
+                                            <div className="p-3 bg-matrix-dark rounded-xl border border-white/5 text-sm">{formData.pronouns || 'None'}</div>
+                                        ) : (
+                                            <input 
+                                                className="matrix-input text-sm" 
+                                                value={formData.pronouns} 
+                                                onChange={(e) => setFormData({ ...formData, pronouns: e.target.value })} 
+                                                placeholder=""
+                                            />
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
                         {/* Description */}
-                        <div>
-                            <label className="block text-sm font-medium text-matrix-muted mb-1">Description / Lore</label>
-                            <textarea 
-                                className="matrix-input h-32 resize-none" 
-                                value={formData.description} 
-                                onChange={(e) => setFormData({ ...formData, description: e.target.value })} 
-                                placeholder="Tell us about them..."
-                            />
+                        <div className="space-y-1">
+                            <label className="block text-xs font-bold text-matrix-muted uppercase tracking-wider">Description</label>
+                            {isReadOnly ? (
+                                <div className="p-4 bg-matrix-dark rounded-xl border border-white/5 text-sm whitespace-pre-wrap min-h-[150px] italic text-slate-300 font-sans">
+                                    {formData.description || 'No description provided.'}
+                                </div>
+                            ) : (
+                                <textarea 
+                                    ref={textareaRef}
+                                    className="matrix-input text-sm min-h-[150px] py-3 overflow-hidden resize-none" 
+                                    value={formData.description} 
+                                    onChange={(e) => setFormData({ ...formData, description: e.target.value })} 
+                                    placeholder="Tell us about this system member..."
+                                />
+                            )}
                         </div>
 
                         {/* Proxy Tags */}
-                        <div className="space-y-4">
+                        <div className="space-y-3 pt-4 border-t border-white/5">
                             <div className="flex items-center justify-between">
-                                <h3 className="text-lg font-bold flex items-center">
-                                    Proxy Tags
-                                    <span className="ml-2 text-xs font-normal text-matrix-muted uppercase tracking-wider">Prefix/Suffix</span>
-                                </h3>
-                                <button 
-                                    type="button" 
-                                    onClick={handleAddTag}
-                                    className="text-matrix-primary hover:text-matrix-secondary transition-colors flex items-center text-sm font-medium"
-                                >
-                                    <Plus size={16} className="mr-1" /> Add Tag
-                                </button>
+                                <label className="block text-xs font-bold text-matrix-muted uppercase tracking-wider">Proxy Tags</label>
+                                {!isReadOnly && (
+                                    <button type="button" onClick={handleAddTag} className="text-matrix-primary hover:text-matrix-primary/80 transition-colors flex items-center text-[10px] font-bold uppercase tracking-widest">
+                                        <Plus size={14} className="mr-1" /> Add Tag
+                                    </button>
+                                )}
                             </div>
-                            
-                            <div className="space-y-3">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 {formData.proxyTags.map((tag: any, index: number) => (
-                                    <div key={index} className="flex items-center space-x-3">
+                                    <div key={index} className="flex items-center gap-2 bg-matrix-dark/50 p-2 rounded-xl border border-white/5 group">
                                         <input 
-                                            className="matrix-input" 
-                                            placeholder="Prefix (e.g. l;)" 
-                                            value={tag.prefix}
+                                            className="bg-matrix-dark border border-white/10 rounded-lg px-3 py-1.5 text-xs font-mono w-full focus:outline-none focus:border-matrix-primary transition-colors disabled:opacity-50" 
+                                            value={tag.prefix} 
+                                            disabled={isReadOnly}
                                             onChange={(e) => handleTagChange(index, 'prefix', e.target.value)}
+                                            placeholder="prefix"
                                         />
-                                        <div className="text-matrix-muted px-2">text</div>
+                                        <span className="text-matrix-muted text-xs font-mono px-1 opacity-50">...</span>
                                         <input 
-                                            className="matrix-input" 
-                                            placeholder="Suffix (optional)" 
-                                            value={tag.suffix}
+                                            className="bg-matrix-dark border border-white/10 rounded-lg px-3 py-1.5 text-xs font-mono w-full focus:outline-none focus:border-matrix-primary transition-colors disabled:opacity-50" 
+                                            value={tag.suffix} 
+                                            disabled={isReadOnly}
                                             onChange={(e) => handleTagChange(index, 'suffix', e.target.value)}
+                                            placeholder="suffix"
                                         />
-                                        <button 
-                                            type="button"
-                                            onClick={() => handleRemoveTag(index)}
-                                            className="p-2 text-matrix-muted hover:text-red-400 transition-colors"
-                                        >
-                                            <Trash2 size={18} />
-                                        </button>
+                                        {!isReadOnly && formData.proxyTags.length > 1 && (
+                                            <button type="button" onClick={() => handleRemoveTag(index)} className="p-1.5 text-matrix-muted hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100">
+                                                <Trash2 size={14} />
+                                            </button>
+                                        )}
                                     </div>
                                 ))}
                             </div>
                         </div>
                     </div>
 
-                    <div className="p-6 border-t border-white/5 flex items-center justify-end space-x-4">
-                        <button 
-                            type="button" 
-                            onClick={onCancel}
-                            className="matrix-button-outline"
-                        >
-                            Cancel
+                    <div className="p-6 border-t border-white/5 bg-matrix-dark/30 flex justify-end gap-3 rounded-b-2xl">
+                        <button type="button" onClick={onCancel} className="px-6 py-2 rounded-xl text-sm font-bold text-matrix-muted hover:text-white hover:bg-white/5 transition-all">
+                            {isReadOnly ? 'Close' : 'Cancel'}
                         </button>
-                                                <button type="submit" disabled={loading} className="matrix-button flex items-center">
-                                                    <Save size={18} className="mr-2" />
-                                                    {loading ? 'Saving...' : 'Save System Member'}
-                                                </button>
+                        {!isReadOnly && (
+                            <button type="submit" disabled={loading} className="matrix-button flex items-center px-8">
+                                <Save size={18} className="mr-2" />
+                                {loading ? 'Saving...' : 'Save Member'}
+                            </button>
+                        )}
                     </div>
                 </form>
             </div>

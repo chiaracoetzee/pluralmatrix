@@ -4,6 +4,8 @@ import { authenticateToken } from '../auth';
 
 const router = Router();
 
+router.get('/public/:slug', systemController.getPublicSystem);
+
 router.use(authenticateToken);
 
 router.get('/', systemController.getSystem);

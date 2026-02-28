@@ -1,18 +1,24 @@
 import React, { useState, useEffect } from 'react';
+import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { memberService, systemService } from '../services/api';
 import MemberCard from '../components/MemberCard';
 import MemberEditor from '../components/MemberEditor';
 import ImportTool from '../components/ImportTool';
 import SystemSettings from '../components/SystemSettings';
-import { LogOut, Plus, Upload, Search, LayoutGrid, List, Trash2, Download, Image, ChevronDown, Database, Edit3 } from 'lucide-react';
+import { LogOut, Plus, Upload, Search, LayoutGrid, List, Trash2, Download, Image, ChevronDown, Database, Edit3, Loader2, Info } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const DashboardPage: React.FC = () => {
+    const { slug: urlSlug } = useParams<{ slug: string }>();
     const { user, token, logout } = useAuth();
+    
     const [system, setSystem] = useState<any>(null);
-    const [members, setMembers] = useState([]);
+    const [members, setMembers] = useState<any[]>([]);
+    const [isOwner, setIsOwner] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    
     const [search, setSearch] = useState('');
     const [isEditing, setIsEditing] = useState(false);
     const [selectedMember, setSelectedMember] = useState<any>(null);
@@ -20,62 +26,69 @@ const DashboardPage: React.FC = () => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isDataMenuOpen, setIsDataMenuOpen] = useState(false);
 
-    const fetchMembers = async () => {
+    const fetchData = async () => {
+        if (!urlSlug) return;
+        
         try {
-            const res = await memberService.list();
-            const sorted = res.data.sort((a: any, b: any) => a.slug.localeCompare(b.slug));
-            setMembers(sorted);
-        } catch (e) {
-            console.error('Failed to fetch members');
+            // 1. Fetch public data
+            const pubRes = await systemService.getPublic(urlSlug);
+            const pubSystem = pubRes.data;
+            
+            setSystem(pubSystem);
+            setMembers(pubSystem.members || []);
+            
+            // 2. Check ownership if logged in
+            if (token) {
+                try {
+                    const ownRes = await systemService.get();
+                    if (ownRes.data.id === pubSystem.id) {
+                        setIsOwner(true);
+                    } else {
+                        setIsOwner(false);
+                    }
+                } catch (e) {
+                    setIsOwner(false);
+                }
+            } else {
+                setIsOwner(false);
+            }
+            
+            setError(null);
+        } catch (err: any) {
+            console.error('Failed to fetch system data:', err);
+            setError(err.response?.data?.error || 'System not found');
         } finally {
             setLoading(false);
         }
     };
 
-    const fetchSystem = async () => {
-        try {
-            const res = await systemService.get();
-            setSystem(res.data);
-        } catch (e) {
-            console.error('Failed to fetch system');
-        }
-    };
+    useEffect(() => {
+        fetchData();
+    }, [urlSlug, token]);
 
     useEffect(() => {
-        fetchMembers();
-        fetchSystem();
-    }, []);
-
-    useEffect(() => {
-        if (!token) return;
+        if (!token || !isOwner) return;
 
         const API_BASE = import.meta.env.VITE_API_URL || '/api';
         const sseUrl = `${API_BASE}/system/events?token=${token}`;
-        console.log(`[SSE] Connecting to: ${sseUrl}`);
         const eventSource = new EventSource(sseUrl);
 
         eventSource.onmessage = (event) => {
             const data = JSON.parse(event.data);
             if (data.type === 'SYSTEM_UPDATE') {
-                fetchSystem();
-                fetchMembers();
+                fetchData();
             }
         };
 
-        eventSource.onerror = (err) => {
-            console.error('SSE Error:', err);
-        };
-
-        return () => {
-            eventSource.close();
-        };
-    }, [token]);
+        return () => eventSource.close();
+    }, [token, isOwner]);
 
     const handleDelete = async (id: string) => {
+        if (!isOwner) return;
         if (confirm('Are you sure you want to delete this system member?')) {
             try {
                 await memberService.delete(id);
-                fetchMembers();
+                fetchData();
             } catch (e) {
                 alert('Delete failed');
             }
@@ -83,10 +96,11 @@ const DashboardPage: React.FC = () => {
     };
 
     const handleDeleteAll = async () => {
+        if (!isOwner) return;
         if (confirm('⚠️ WARNING: This will permanently delete ALL system members in your system. This cannot be undone. Are you absolutely sure?')) {
             try {
                 await memberService.deleteAll();
-                fetchMembers();
+                fetchData();
             } catch (e) {
                 alert('Bulk delete failed');
             }
@@ -94,12 +108,13 @@ const DashboardPage: React.FC = () => {
     };
 
     const handleImportMedia = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!isOwner) return;
         if (e.target.files && e.target.files[0]) {
             try {
                 setLoading(true);
                 const res = await memberService.importMedia(e.target.files[0]);
                 alert(`Successfully imported ${res.data.count} avatars!`);
-                fetchMembers();
+                fetchData();
             } catch (err) {
                 alert('Media import failed.');
             } finally {
@@ -109,10 +124,11 @@ const DashboardPage: React.FC = () => {
     };
 
     const handleToggleAutoproxy = async (memberId: string) => {
+        if (!isOwner) return;
         try {
             const newId = system?.autoproxyId === memberId ? null : memberId;
             const res = await systemService.update({ autoproxyId: newId });
-            setSystem(res.data);
+            setSystem({ ...system, autoproxyId: res.data.autoproxyId });
         } catch (e) {
             alert('Failed to update autoproxy setting.');
         }
@@ -129,26 +145,68 @@ const DashboardPage: React.FC = () => {
         return a.slug.localeCompare(b.slug);
     });
 
+    if (loading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-matrix-dark">
+                <Loader2 className="w-12 h-12 text-matrix-primary animate-spin" />
+            </div>
+        );
+    }
+
+    if (error || !system) {
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center bg-matrix-dark text-matrix-text px-4">
+                <div className="bg-matrix-light p-8 rounded-3xl border border-white/5 text-center space-y-6 max-w-md shadow-2xl">
+                    <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto text-red-500">
+                        <Info size={40} />
+                    </div>
+                    <h2 className="text-2xl font-bold">System Not Found</h2>
+                    <p className="text-matrix-muted">The system with slug <b>{urlSlug}</b> could not be found or is not public.</p>
+                    <Link to="/" className="matrix-button w-full flex items-center justify-center font-bold">
+                        Return to My Dashboard
+                    </Link>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="min-h-screen pb-20 text-matrix-text">
             {/* Header */}
             <header className="sticky top-0 z-40 bg-matrix-dark/80 backdrop-blur-md border-b border-white/5">
                 <div className="max-w-7xl mx-auto px-4 h-20 flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                        <img src="/lily.png" alt="PluralMatrix Logo" className="w-10 h-10 rounded-xl object-cover shadow-lg" />
-                        <div>
+                    <div className="flex items-center space-x-4 overflow-hidden">
+                        <Link to="/">
+                            <img src="/lily.png" alt="PluralMatrix Logo" className="w-10 h-10 rounded-xl object-cover shadow-lg hover:scale-105 transition-transform" />
+                        </Link>
+                        <div className="min-w-0">
                             <h1 className="font-bold text-xl leading-tight">PluralMatrix</h1>
-                            <p className="text-matrix-muted text-xs font-medium">{user?.mxid}</p>
+                            <p className="text-matrix-muted text-xs font-medium truncate">
+                                {isOwner ? user?.mxid : "Public Profile"}
+                            </p>
                         </div>
                     </div>
                     
                     <div className="flex items-center space-x-4">
-                        <button 
-                            onClick={logout}
-                            className="p-2 hover:bg-white/5 rounded-lg text-matrix-muted hover:text-white transition-colors flex items-center text-sm font-medium"
-                        >
-                            <LogOut size={18} className="mr-2" /> Sign Out
-                        </button>
+                        {token ? (
+                            <>
+                                {!isOwner && (
+                                    <Link to="/" className="text-sm font-bold text-matrix-primary hover:text-matrix-primary/80 transition-colors hidden md:block">
+                                        My Dashboard
+                                    </Link>
+                                )}
+                                <button 
+                                    onClick={logout}
+                                    className="p-2 hover:bg-white/5 rounded-lg text-matrix-muted hover:text-white transition-colors flex items-center text-sm font-medium"
+                                >
+                                    <LogOut size={18} className="md:mr-2" /> <span className="hidden md:inline">Sign Out</span>
+                                </button>
+                            </>
+                        ) : (
+                            <Link to="/login" className="matrix-button py-2 px-6 text-sm font-bold">
+                                Sign In
+                            </Link>
+                        )}
                     </div>
                 </div>
             </header>
@@ -160,97 +218,101 @@ const DashboardPage: React.FC = () => {
                         <div className="space-y-1">
                             <div className="flex items-center gap-3 group">
                                 <h2 className="text-4xl font-bold tracking-tight text-white">
-                                    {system?.name || "Your System"}
+                                    {system?.name || "Unnamed System"}
                                 </h2>
-                                <button 
-                                    onClick={() => setIsSettingsOpen(true)}
-                                    className="p-2 hover:bg-white/5 rounded-full text-matrix-muted hover:text-matrix-primary transition-colors"
-                                    title="Edit System Settings"
-                                >
-                                    <Edit3 size={20} />
-                                </button>
+                                {isOwner && (
+                                    <button 
+                                        onClick={() => setIsSettingsOpen(true)}
+                                        className="p-2 hover:bg-white/5 rounded-full text-matrix-muted hover:text-matrix-primary transition-colors"
+                                        title="Edit System Settings"
+                                    >
+                                        <Edit3 size={20} />
+                                    </button>
+                                )}
                             </div>
                             {system?.systemTag && (
                                 <div className="text-xl font-normal text-matrix-muted/80 flex items-center">
-                                    <span className="bg-white/5 px-2 py-0.5 rounded text-sm uppercase tracking-wider mr-2 text-xs font-bold">Suffix Tag</span>
+                                    <span className="bg-white/5 px-2 py-0.5 rounded text-sm uppercase tracking-wider mr-2 text-xs font-bold font-mono">Suffix Tag</span>
                                     {system.systemTag}
                                 </div>
                             )}
                         </div>
-                        <p className="text-matrix-muted font-medium mt-4">You have {members.length} registered system members.</p>
+                        <p className="text-matrix-muted font-medium mt-4">This system has {members.length} registered members.</p>
                     </div>
                     
-                    <div className="flex items-center gap-3">
-                        <button 
-                            onClick={() => { setSelectedMember(null); setIsEditing(true); }}
-                            className="matrix-button flex items-center shadow-lg shadow-matrix-primary/20"
-                        >
-                            <Plus size={18} className="mr-2" /> Add System Member
-                        </button>
-
-                        <div className="relative">
+                    {isOwner && (
+                        <div className="flex items-center gap-3">
                             <button 
-                                onClick={() => setIsDataMenuOpen(!isDataMenuOpen)}
-                                className="matrix-button-outline flex items-center"
+                                onClick={() => { setSelectedMember(null); setIsEditing(true); }}
+                                className="matrix-button flex items-center shadow-lg shadow-matrix-primary/20"
                             >
-                                <Database size={18} className="mr-2" /> Data <ChevronDown size={16} className={`ml-2 transition-transform ${isDataMenuOpen ? 'rotate-180' : ''}`} />
+                                <Plus size={18} className="mr-2" /> Add System Member
                             </button>
 
-                            <AnimatePresence>
-                                {isDataMenuOpen && (
-                                    <>
-                                        <div className="fixed inset-0 z-10" onClick={() => setIsDataMenuOpen(false)} />
-                                        <motion.div 
-                                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                                            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                                            className="absolute right-0 mt-2 w-56 bg-matrix-light border border-white/10 rounded-xl shadow-2xl z-20 py-2 overflow-hidden"
-                                        >
-                                            <div className="px-4 py-2 text-[10px] font-bold text-matrix-muted uppercase tracking-wider">Export</div>
-                                            <button 
-                                                onClick={() => { memberService.exportPk(); setIsDataMenuOpen(false); }}
-                                                className="w-full px-4 py-2.5 text-left text-sm hover:bg-white/5 flex items-center transition-colors"
-                                            >
-                                                <Download size={16} className="mr-3 text-matrix-primary" /> Export JSON (PK)
-                                            </button>
-                                            <button 
-                                                onClick={() => { memberService.exportMedia(); setIsDataMenuOpen(false); }}
-                                                className="w-full px-4 py-2.5 text-left text-sm hover:bg-white/5 flex items-center transition-colors"
-                                            >
-                                                <Image size={16} className="mr-3 text-matrix-primary" /> Export Avatars (ZIP)
-                                            </button>
+                            <div className="relative">
+                                <button 
+                                    onClick={() => setIsDataMenuOpen(!isDataMenuOpen)}
+                                    className="matrix-button-outline flex items-center"
+                                >
+                                    <Database size={18} className="mr-2" /> Data <ChevronDown size={16} className={`ml-2 transition-transform ${isDataMenuOpen ? 'rotate-180' : ''}`} />
+                                </button>
 
-                                            <div className="h-px bg-white/5 my-2" />
-                                            <div className="px-4 py-2 text-[10px] font-bold text-matrix-muted uppercase tracking-wider">Import</div>
-                                            <button 
-                                                onClick={() => { setIsImporting(true); setIsDataMenuOpen(false); }}
-                                                className="w-full px-4 py-2.5 text-left text-sm hover:bg-white/5 flex items-center transition-colors"
+                                <AnimatePresence>
+                                    {isDataMenuOpen && (
+                                        <>
+                                            <div className="fixed inset-0 z-10" onClick={() => setIsDataMenuOpen(false)} />
+                                            <motion.div 
+                                                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                                className="absolute right-0 mt-2 w-56 bg-matrix-light border border-white/10 rounded-xl shadow-2xl z-20 py-2 overflow-hidden"
                                             >
-                                                <Upload size={16} className="mr-3 text-matrix-primary" /> Import JSON (PK)
-                                            </button>
-                                            <label className="w-full px-4 py-2.5 text-left text-sm hover:bg-white/5 flex items-center cursor-pointer transition-colors">
-                                                <Upload size={16} className="mr-3 text-matrix-primary" /> Import Avatars (ZIP)
-                                                <input type="file" accept=".zip" onChange={(e) => { handleImportMedia(e); setIsDataMenuOpen(false); }} className="hidden" />
-                                            </label>
+                                                <div className="px-4 py-2 text-[10px] font-bold text-matrix-muted uppercase tracking-wider">Export</div>
+                                                <button 
+                                                    onClick={() => { memberService.exportPk(); setIsDataMenuOpen(false); }}
+                                                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-white/5 flex items-center transition-colors"
+                                                >
+                                                    <Download size={16} className="mr-3 text-matrix-primary" /> Export JSON (PK)
+                                                </button>
+                                                <button 
+                                                    onClick={() => { memberService.exportMedia(); setIsDataMenuOpen(false); }}
+                                                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-white/5 flex items-center transition-colors"
+                                                >
+                                                    <Image size={16} className="mr-3 text-matrix-primary" /> Export Avatars (ZIP)
+                                                </button>
 
-                                            <div className="h-px bg-white/5 my-2" />
-                                            <div className="px-4 py-2 text-[10px] font-bold text-red-400 uppercase tracking-wider">Danger Zone</div>
-                                            <button 
-                                                onClick={() => { handleDeleteAll(); setIsDataMenuOpen(false); }}
-                                                className="w-full px-4 py-2.5 text-left text-sm hover:bg-red-400/10 text-red-400 flex items-center transition-colors"
-                                            >
-                                                <Trash2 size={16} className="mr-3" /> Delete All System Members
-                                            </button>
-                                        </motion.div>
-                                    </>
-                                )}
-                            </AnimatePresence>
+                                                <div className="h-px bg-white/5 my-2" />
+                                                <div className="px-4 py-2 text-[10px] font-bold text-matrix-muted uppercase tracking-wider">Import</div>
+                                                <button 
+                                                    onClick={() => { setIsImporting(true); setIsDataMenuOpen(false); }}
+                                                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-white/5 flex items-center transition-colors"
+                                                >
+                                                    <Upload size={16} className="mr-3 text-matrix-primary" /> Import JSON (PK)
+                                                </button>
+                                                <label className="w-full px-4 py-2.5 text-left text-sm hover:bg-white/5 flex items-center cursor-pointer transition-colors">
+                                                    <Upload size={16} className="mr-3 text-matrix-primary" /> Import Avatars (ZIP)
+                                                    <input type="file" accept=".zip" onChange={(e) => { handleImportMedia(e); setIsDataMenuOpen(false); }} className="hidden" />
+                                                </label>
+
+                                                <div className="h-px bg-white/5 my-2" />
+                                                <div className="px-4 py-2 text-[10px] font-bold text-red-400 uppercase tracking-wider">Danger Zone</div>
+                                                <button 
+                                                    onClick={() => { handleDeleteAll(); setIsDataMenuOpen(false); }}
+                                                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-red-400/10 text-red-400 flex items-center transition-colors"
+                                                >
+                                                    <Trash2 size={16} className="mr-3" /> Delete All System Members
+                                                </button>
+                                            </motion.div>
+                                        </>
+                                    )}
+                                </AnimatePresence>
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
 
                 {/* Search & Filter */}
-                <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-matrix-light p-4 rounded-2xl border border-white/5">
+                <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-matrix-light p-4 rounded-2xl border border-white/5 shadow-inner">
                     <div className="relative w-full md:max-w-md">
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-matrix-muted" size={18} />
                         <input 
@@ -267,36 +329,31 @@ const DashboardPage: React.FC = () => {
                 </div>
 
                 {/* Grid */}
-                {loading ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {[1,2,3,4,5,6].map(i => (
-                            <div key={i} className="h-48 bg-matrix-light animate-pulse rounded-2xl border border-white/5" />
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <AnimatePresence mode="popLayout">
+                        {filteredMembers.map((member: any) => (
+                            <MemberCard 
+                                key={member.id} 
+                                member={member} 
+                                isReadOnly={!isOwner}
+                                isAutoproxy={system?.autoproxyId === member.id}
+                                onEdit={(m) => { setSelectedMember(m); setIsEditing(true); }}
+                                onDelete={handleDelete}
+                                onToggleAutoproxy={handleToggleAutoproxy}
+                            />
                         ))}
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        <AnimatePresence mode="popLayout">
-                            {filteredMembers.map((member: any) => (
-                                <MemberCard 
-                                    key={member.id} 
-                                    member={member} 
-                                    isAutoproxy={system?.autoproxyId === member.id}
-                                    onEdit={(m) => { setSelectedMember(m); setIsEditing(true); }}
-                                    onDelete={handleDelete}
-                                    onToggleAutoproxy={handleToggleAutoproxy}
-                                />
-                            ))}
-                        </AnimatePresence>
-                    </div>
-                )}
+                    </AnimatePresence>
+                </div>
 
-                {!loading && filteredMembers.length === 0 && (
+                {filteredMembers.length === 0 && (
                     <div className="text-center py-20 space-y-4">
-                        <div className="w-20 h-20 bg-matrix-light rounded-full flex items-center justify-center mx-auto text-matrix-muted">
+                        <div className="w-20 h-20 bg-matrix-light rounded-full flex items-center justify-center mx-auto text-matrix-muted opacity-50">
                             <Search size={40} />
                         </div>
                         <h3 className="text-xl font-bold">No system members found</h3>
-                        <p className="text-matrix-muted max-w-xs mx-auto">Try a different search term or add your first system member using the button above.</p>
+                        <p className="text-matrix-muted max-w-xs mx-auto">
+                            {isOwner ? "Try a different search term or add your first system member using the button above." : "Try a different search term."}
+                        </p>
                     </div>
                 )}
             </main>
@@ -305,21 +362,22 @@ const DashboardPage: React.FC = () => {
             {isEditing && (
                 <MemberEditor 
                     member={selectedMember} 
-                    onSave={() => { setIsEditing(false); fetchMembers(); }}
+                    isReadOnly={!isOwner}
+                    onSave={() => { setIsEditing(false); fetchData(); }}
                     onCancel={() => setIsEditing(false)}
                 />
             )}
 
-            {isImporting && (
+            {isImporting && isOwner && (
                 <ImportTool 
-                    onComplete={() => { setIsImporting(false); fetchMembers(); }}
+                    onComplete={() => { setIsImporting(false); fetchData(); }}
                     onCancel={() => setIsImporting(false)}
                 />
             )}
 
-            {isSettingsOpen && (
+            {isSettingsOpen && isOwner && (
                 <SystemSettings 
-                    onSave={() => { setIsSettingsOpen(false); fetchMembers(); fetchSystem(); }}
+                    onSave={() => { setIsSettingsOpen(false); fetchData(); }}
                     onCancel={() => setIsSettingsOpen(false)}
                 />
             )}

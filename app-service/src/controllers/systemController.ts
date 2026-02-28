@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { prisma } from '../bot';
 import { AuthRequest } from '../auth';
 import { SystemSchema } from '../schemas/member';
@@ -38,6 +38,43 @@ export const streamSystemEvents = async (req: AuthRequest, res: Response) => {
         clearInterval(heartbeatInterval);
         systemEvents.off('update', onUpdate);
     });
+};
+
+export const getPublicSystem = async (req: Request, res: Response) => {
+    try {
+        const slug = req.params.slug as string;
+        const system = await prisma.system.findUnique({
+            where: { slug },
+            include: {
+                members: {
+                    select: {
+                        id: true,
+                        slug: true,
+                        name: true,
+                        displayName: true,
+                        avatarUrl: true,
+                        pronouns: true,
+                        description: true,
+                        color: true,
+                        proxyTags: true,
+                        createdAt: true
+                    },
+                    orderBy: {
+                        slug: 'asc'
+                    }
+                }
+            }
+        });
+
+        if (!system) {
+            return res.status(404).json({ error: 'System not found' });
+        }
+
+        res.json(system);
+    } catch (e) {
+        console.error('[SystemController] Failed to fetch public system:', e);
+        res.status(500).json({ error: 'Failed to fetch public system' });
+    }
 };
 
 export const getSystem = async (req: AuthRequest, res: Response) => {

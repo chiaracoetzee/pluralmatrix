@@ -18,18 +18,20 @@ interface Member {
 interface MemberCardProps {
     member: Member;
     isAutoproxy?: boolean;
+    isReadOnly?: boolean;
     onEdit: (member: Member) => void;
     onDelete: (id: string) => void;
     onToggleAutoproxy?: (id: string) => void;
 }
 
-const MemberCard: React.FC<MemberCardProps> = ({ member, isAutoproxy, onEdit, onDelete, onToggleAutoproxy }) => {
+const MemberCard: React.FC<MemberCardProps> = ({ member, isAutoproxy, isReadOnly, onEdit, onDelete, onToggleAutoproxy }) => {
     return (
         <motion.div 
             layout
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             className={`matrix-card group ${isAutoproxy ? 'ring-2 ring-yellow-500/50 shadow-lg shadow-yellow-500/10' : ''}`}
+            onClick={() => isReadOnly && onEdit(member)}
         >
             <div 
                 className="h-2 w-full" 
@@ -64,27 +66,29 @@ const MemberCard: React.FC<MemberCardProps> = ({ member, isAutoproxy, onEdit, on
                             )}
                         </div>
                     </div>
-                    <div className="flex flex-col space-y-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
-                            onClick={() => onToggleAutoproxy?.(member.id)}
-                            className={`p-2 rounded-lg transition-colors ${isAutoproxy ? 'bg-yellow-500/20 text-yellow-500 hover:bg-yellow-500/30' : 'hover:bg-white/5 text-matrix-muted hover:text-yellow-500'}`}
-                            title={isAutoproxy ? "Disable Autoproxy" : "Set as Autoproxy"}
-                        >
-                            <Star size={18} fill={isAutoproxy ? "currentColor" : "none"} />
-                        </button>
-                        <button 
-                            onClick={() => onEdit(member)}
-                            className="p-2 hover:bg-white/5 rounded-lg text-matrix-muted hover:text-white transition-colors"
-                        >
-                            <Edit3 size={18} />
-                        </button>
-                        <button 
-                            onClick={() => onDelete(member.id)}
-                            className="p-2 hover:bg-red-400/10 rounded-lg text-matrix-muted hover:text-red-400 transition-colors"
-                        >
-                            <Trash2 size={18} />
-                        </button>
-                    </div>
+                    {!isReadOnly && (
+                        <div className="flex flex-col space-y-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button 
+                                onClick={() => onToggleAutoproxy?.(member.id)}
+                                className={`p-2 rounded-lg transition-colors ${isAutoproxy ? 'bg-yellow-500/20 text-yellow-500 hover:bg-yellow-500/30' : 'hover:bg-white/5 text-matrix-muted hover:text-yellow-500'}`}
+                                title={isAutoproxy ? "Disable Autoproxy" : "Set as Autoproxy"}
+                            >
+                                <Star size={18} fill={isAutoproxy ? "currentColor" : "none"} />
+                            </button>
+                            <button 
+                                onClick={() => onEdit(member)}
+                                className="p-2 hover:bg-white/5 rounded-lg text-matrix-muted hover:text-white transition-colors"
+                            >
+                                <Edit3 size={18} />
+                            </button>
+                            <button 
+                                onClick={() => onDelete(member.id)}
+                                className="p-2 hover:bg-red-400/10 rounded-lg text-matrix-muted hover:text-red-400 transition-colors"
+                            >
+                                <Trash2 size={18} />
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 <div className="space-y-3">
