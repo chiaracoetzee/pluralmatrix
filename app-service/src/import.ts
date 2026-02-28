@@ -1,7 +1,7 @@
 import { prisma } from './bot';
 import { getBridge } from './bot';
 import archiver from 'archiver';
-import ADMZip from 'adm-zip';
+import AdmZip from 'adm-zip';
 import { maskMxid } from './utils/privacy';
 
 /**
