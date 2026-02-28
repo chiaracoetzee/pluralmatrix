@@ -26,6 +26,11 @@ app.use(express.static(clientPath));
 // API Routes
 app.use('/api', routes);
 
+// Healthcheck (Unauthenticated)
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'OK' });
+});
+
 // Check for mandatory environment variables
 if (!process.env.AS_TOKEN || !process.env.JWT_SECRET) {
     console.error('FATAL: Missing mandatory environment variables AS_TOKEN or JWT_SECRET!');
