@@ -44,11 +44,7 @@ services:
       dockerfile: ./app-service/Dockerfile
     container_name: ${PROJECT_NAME:-pluralmatrix}-app-service
     restart: unless-stopped
-    environment:
-      - PROJECT_NAME=${PROJECT_NAME:-pluralmatrix}
-      - DATABASE_URL=${DATABASE_URL:-postgresql://synapse:synapse_password@${PROJECT_NAME:-pluralmatrix}-postgres:5432/plural_db}
-      - SYNAPSE_URL=http://${PROJECT_NAME:-pluralmatrix}-synapse:8008
-      - APP_PORT=${APP_PORT:-9000}
+    env_file: ./.env
     volumes:
       - ./synapse/config/app-service-registration.yaml:/data/app-service-registration.yaml
       - app_service_data:/app/data

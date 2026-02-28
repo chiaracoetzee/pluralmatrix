@@ -22,9 +22,11 @@ echo "🗑️ Cleaning up conflicting containers..."
 sudo docker rm -f ${PROJECT_NAME}-postgres ${PROJECT_NAME}-synapse ${PROJECT_NAME}-app-service 2>/dev/null || true
 
 # 1. Pre-flight: Fix Synapse Permissions
-# Synapse runs as user 991 and needs write access to its config dir for logs/keys
+# Synapse runs as a specific user (default 991) and needs write access to its config dir
 echo "🛡️ Fixing Synapse permissions..."
-sudo chown -R 991:991 synapse/config 2>/dev/null || true
+S_UID=${SYNAPSE_UID:-991}
+S_GID=${SYNAPSE_GID:-991}
+sudo chown -R $S_UID:$S_GID synapse/config 2>/dev/null || true
 
 # 2. Start Postgres first
 echo "🐘 Starting database..."

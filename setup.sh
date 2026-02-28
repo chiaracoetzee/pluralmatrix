@@ -50,6 +50,7 @@ sed -i "s/POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$PG_PASS/" .env
 sed -i "s|DATABASE_URL=.*|DATABASE_URL=postgresql://plural_app:$PG_PASS@${PROJECT_NAME}-postgres:5432/plural_db|" .env
 sed -i "s/PROJECT_NAME=.*/PROJECT_NAME=$PROJECT_NAME/" .env
 sed -i "s/SYNAPSE_SERVER_NAME=.*/SYNAPSE_SERVER_NAME=$DOMAIN/" .env
+sed -i "s|SYNAPSE_URL=.*|SYNAPSE_URL=http://${PROJECT_NAME}-synapse:8008|" .env
 echo "SYNAPSE_DOMAIN=$DOMAIN" >> .env
 sed -i "s/AS_TOKEN=.*/AS_TOKEN=$AS_TOKEN/" .env
 sed -i "s/JWT_SECRET=.*/JWT_SECRET=$JWT_SECRET/" .env

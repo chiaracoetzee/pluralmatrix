@@ -20,7 +20,7 @@ FROM node:22-slim
 WORKDIR /app
 
 # Install dependencies for building native modules
-RUN apt-get update -y && apt-get install -y openssl ca-certificates python3 make g++
+RUN apt-get update -y && apt-get install -y openssl ca-certificates python3 make g++ curl
 
 # 1. Build Frontend
 WORKDIR /app/client
