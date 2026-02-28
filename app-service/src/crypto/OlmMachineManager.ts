@@ -28,7 +28,7 @@ export class OlmMachineManager {
 
         const sanitizedId = userId.replace(/[^a-zA-Z0-9]/g, "_");
         const storePath = path.join(this.storageRoot, sanitizedId);
-        const deviceId = "PLURAL_CTX_V8"; 
+        const deviceId = process.env.CRYPTO_DEVICE_ID || "PLURAL_CTX_V9"; 
 
         // Ensure store directory exists
         if (!fs.existsSync(storePath)) {

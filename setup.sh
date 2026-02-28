@@ -68,6 +68,7 @@ sed -i "s/SYNAPSE_DOMAIN=.*/SYNAPSE_DOMAIN=$DOMAIN/" .env
 sed -i "s|SYNAPSE_URL=.*|SYNAPSE_URL=http://${PROJECT_NAME}-synapse:8008|" .env
 sed -i "s/AS_TOKEN=.*/AS_TOKEN=$AS_TOKEN/" .env
 sed -i "s/JWT_SECRET=.*/JWT_SECRET=$JWT_SECRET/" .env
+sed -i "s/CRYPTO_DEVICE_ID=.*/CRYPTO_DEVICE_ID=PLURAL_CTX_V9/" .env
 sed -i "s/APP_PORT=.*/APP_PORT=$APP_PORT/" .env
 sed -i "s/SYNAPSE_PORT=.*/SYNAPSE_PORT=$SYNAPSE_PORT/" .env
 
