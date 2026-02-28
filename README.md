@@ -55,6 +55,15 @@ These commands are designed to work exactly like their PluralKit equivalents for
 - **Ghost Decommissioning:** Automatically cleans up ghost users and their room memberships when a member is deleted.
 - **Profile Syncing:** Ensures global Matrix profiles stay in sync with your system dashboard.
 
+## Privacy & Security Considerations <a name="privacy-security" href="#privacy-security">#</a>
+
+PluralMatrix requires access to message content to function. Users and server administrators should be aware of the following:
+
+- **Server Admin Access:** The administrator of the server running the PluralMatrix application service has access to all messages sent to and from `@plural_bot` and the ghost users. This is unavoidable because the application service must store the cryptographic keys required to decrypt your proxy commands and encrypt the resulting ghost messages.
+- **Message Decryption in Memory:** In order to check if a message contains a proxy tag, the bridge must decrypt the message. This means messages sent in rooms where the bot is present will temporarily exist in cleartext within the server's memory.
+- **Database Storage:** While message history is not retained by the bridge, any system member data you create or import (names, avatars, proxy tags, etc.) is stored in the PluralMatrix PostgreSQL database.
+- **Homeserver Visibility:** Because the bot and ghost users participate in your rooms, the homeserver hosting PluralMatrix will receive and store a copy of the room's encrypted event history, just like any other user's homeserver in a federated room.
+
 ## Installation & Setup <a name="installation-setup" href="#installation-setup">#</a>
 
 ### Prerequisites
