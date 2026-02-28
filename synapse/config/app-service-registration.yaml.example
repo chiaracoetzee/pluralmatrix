@@ -11,6 +11,8 @@ namespaces:
     - exclusive: true
       regex: '#_plural_.*'
 
+rate_limited: false
+
 de.sorunome.msc2409.push_ephemeral: true
 push_ephemeral: true
 
