@@ -246,6 +246,36 @@ describe('API Endpoints', () => {
             expect(response.status).toBe(400);
             expect(response.body.error).toContain('already in use by Lily');
         });
+
+        it('POST /api/members should SUCCEED if duplicate proxy tags exist in DIFFERENT systems', async () => {
+            // Mock system for CURRENT user (alice) - empty system
+            (prisma.accountLink.findUnique as jest.Mock).mockResolvedValue({ 
+                system: { 
+                    id: 'sys-alice', 
+                    members: [] // Alice's system has no members
+                } 
+            });
+
+            // Even if 'sys-bob' has a member with 'l:', it shouldn't matter for Alice
+            (prisma.member.create as jest.Mock).mockResolvedValue({ 
+                id: 'm-new', 
+                name: 'Lily',
+                slug: 'lily',
+                proxyTags: [{ prefix: 'l:', suffix: '' }]
+            });
+
+            const response = await request(app)
+                .post('/api/members')
+                .set(authHeader)
+                .send({ 
+                    name: 'Lily', 
+                    slug: 'lily',
+                    proxyTags: [{ prefix: 'l:', suffix: '' }]
+                });
+
+            expect(response.status).toBe(200);
+            expect(response.body.name).toBe('Lily');
+        });
     });
 
     describe('System Settings API', () => {

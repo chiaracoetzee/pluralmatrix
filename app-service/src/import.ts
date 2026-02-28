@@ -212,7 +212,7 @@ export const importFromPluralKit = async (mxid: string, jsonData: any) => {
                 name: jsonData.name || `${localpart}'s System`,
                 systemTag: jsonData.tag,
                 accountLinks: {
-                    create: { matrixId: mxid }
+                    create: { matrixId: mxid, isPrimary: true }
                 }
             }
         });

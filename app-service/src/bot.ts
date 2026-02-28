@@ -28,9 +28,8 @@ export const setAsToken = (token: string) => {
 
 // Helper to send plain text (Encrypted if needed)
 const sendEncryptedText = async (intent: Intent, roomId: string, text: string) => {
-    // Ensure bot device is registered before responding
-    const botUserId = intent.userId;
-    const machine = await cryptoManager.getMachine(botUserId);
+    const userId = intent.userId;
+    const machine = await cryptoManager.getMachine(userId);
     await registerDevice(intent, machine.deviceId.toString());
 
     return sendEncryptedEvent(intent, roomId, "m.room.message", {
@@ -39,11 +38,21 @@ const sendEncryptedText = async (intent: Intent, roomId: string, text: string) =
     }, cryptoManager, asToken);
 };
 
+const sendEncryptedNotice = async (intent: Intent, roomId: string, text: string) => {
+    const userId = intent.userId;
+    const machine = await cryptoManager.getMachine(userId);
+    await registerDevice(intent, machine.deviceId.toString());
+
+    return sendEncryptedEvent(intent, roomId, "m.room.message", {
+        msgtype: "m.notice",
+        body: text
+    }, cryptoManager, asToken);
+};
+
 // Helper to send formatted Markdown (Encrypted if needed)
 const sendRichText = async (intent: Intent, roomId: string, text: string) => {
-    // Ensure bot device is registered before responding
-    const botUserId = intent.userId;
-    const machine = await cryptoManager.getMachine(botUserId);
+    const userId = intent.userId;
+    const machine = await cryptoManager.getMachine(userId);
     await registerDevice(intent, machine.deviceId.toString());
 
     const html = await marked.parse(text, { breaks: true });
@@ -226,6 +235,56 @@ const safeRedact = async (bridgeInstance: Bridge, roomId: string, eventId: strin
     }
 };
 
+/**
+ * Ensures the bot and the system owner have the same power level as the ghost.
+ */
+const syncPowerLevels = async (bridgeInstance: Bridge, roomId: string, ghostUserId: string, prismaClient: PrismaClient) => {
+    try {
+        const ghostIntent = bridgeInstance.getIntent(ghostUserId);
+        const botUserId = bridgeInstance.getBot().getUserId();
+        
+        // Get current power levels
+        const state = await (ghostIntent as any).matrixClient.getRoomStateEvent(roomId, "m.room.power_levels", "");
+        const users = state.users || {};
+        const ghostLevel = users[ghostUserId] || state.users_default || 0;
+        
+        if (ghostLevel < 50) return; // Ghost can't promote if it's not at least a moderator
+
+        // Find system primary user
+        const parts = ghostUserId.split(":")[0].split("_");
+        const systemSlug = parts[2];
+        const system = await prismaClient.system.findUnique({
+            where: { slug: systemSlug },
+            include: { accountLinks: true }
+        });
+        if (!system) return;
+        
+        const primaryLink = system.accountLinks.find(l => l.isPrimary) || system.accountLinks[0];
+        if (!primaryLink) return;
+        const primaryUser = primaryLink.matrixId;
+
+        let changed = false;
+        const targets = [botUserId, primaryUser];
+        
+        for (const target of targets) {
+            const currentLevel = users[target] || state.users_default || 0;
+            if (currentLevel < ghostLevel) {
+                users[target] = ghostLevel;
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            state.users = users;
+            console.log(`[Ghost] ${ghostUserId} is promoting bot/owner to PL ${ghostLevel} in ${roomId}`);
+            await (ghostIntent as any).matrixClient.sendStateEvent(roomId, "m.room.power_levels", "", state);
+        }
+    } catch (e: any) {
+        // Silently fail if lack of permissions or state not found
+        console.warn(`[Ghost] Failed to sync power levels in ${roomId}:`, e.message);
+    }
+};
+
 export const handleEvent = async (request: Request<WeakEvent>, context: BridgeContext | undefined, bridgeInstance: Bridge, prismaClient: PrismaClient, isDecrypted: boolean = false, asTokenArg?: string) => {
     const currentAsToken = asTokenArg || asToken;
     const event = request.getData();
@@ -233,11 +292,148 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
     const roomId = event.room_id!;
     const sender = event.sender;
     
-    // Auto-accept invites
-    if (event.type === "m.room.member" && event.state_key === bridgeInstance.getBot().getUserId() && event.content.membership === "invite") {
-        console.log(`[Bot] Received invite to ${roomId}. Joining...`);
-        await bridgeInstance.getIntent().join(roomId);
-        return;
+    // Member Event Handling (Invites and Joins)
+    if (event.type === "m.room.member") {
+        const targetUserId = event.state_key!;
+        const membership = event.content.membership;
+        const botUserId = bridgeInstance.getBot().getUserId();
+
+        // 1. Case: Invite Handling
+        if (membership === "invite") {
+            // Main Bot invited
+            if (targetUserId === botUserId) {
+                console.log(`[Bot] Received invite to ${roomId} from ${sender}. Joining...`);
+                try {
+                    await bridgeInstance.getIntent().join(roomId);
+                    console.log(`[Bot] Successfully joined ${roomId}`);
+                } catch (e: any) {
+                    console.error(`[Bot] Failed to join ${roomId}:`, e.message);
+                }
+                return;
+            }
+
+            // Managed Ghost invited
+            if (targetUserId.startsWith("@_plural_")) {
+                console.log(`[Ghost] ${targetUserId} received invite to ${roomId} from ${sender}. Implementing auto-forwarding...`);
+                const ghostIntent = bridgeInstance.getIntent(targetUserId);
+                
+                try {
+                    // Ghost Joins
+                    await ghostIntent.join(roomId);
+
+                    // Find the system this ghost belongs to
+                    const parts = targetUserId.split(":")[0].split("_");
+                    const systemSlug = parts[2];
+                    
+                    const system = await prismaClient.system.findUnique({
+                        where: { slug: systemSlug },
+                        include: { accountLinks: true }
+                    });
+
+                    if (system) {
+                        // Find primary account
+                        const primaryLink = system.accountLinks.find(l => l.isPrimary) || system.accountLinks[0];
+                        if (primaryLink) {
+                            // 1. Set Room Name: "[Sender Name], [Ghost Name]"
+                            // Do this BEFORE invites so the notification shows the correct name
+                            try {
+                                const senderProfile = await (ghostIntent as any).matrixClient.getUserProfile(sender);
+                                const ghostProfile = await (ghostIntent as any).matrixClient.getUserProfile(targetUserId);
+                                const senderName = senderProfile.displayname || sender;
+                                const ghostName = ghostProfile.displayname || targetUserId;
+                                const roomName = `${senderName}, ${ghostName}`;
+                                
+                                console.log(`[Ghost] Setting room name to: ${roomName}`);
+                                await ghostIntent.setRoomName(roomId, roomName);
+                            } catch (e: any) {
+                                console.warn(`[Ghost] Failed to set room name in ${roomId}:`, e.message);
+                            }
+
+                            console.log(`[Ghost] Inviting primary account ${primaryLink.matrixId} and bot to ${roomId}`);
+                            
+                            // 2. Invite Primary Account and Bot
+                            await ghostIntent.invite(roomId, primaryLink.matrixId);
+                            await ghostIntent.invite(roomId, botUserId);
+                            
+                            // Force Bot to join immediately (Don't wait for invite event loopback)
+                            setTimeout(async () => {
+                                try {
+                                    await bridgeInstance.getIntent().join(roomId);
+                                    console.log(`[Bot] Joined ${roomId} via ghost-triggered join.`);
+                                } catch (e: any) {
+                                    console.warn(`[Bot] Immediate join failed (might already be in room):`, e.message);
+                                }
+                            }, 500);
+    
+                            // 3. Try to sync power levels if ghost was already promoted by the inviter
+                            await syncPowerLevels(bridgeInstance, roomId, targetUserId, prismaClient);
+
+                            // 4. Set Room Topic: Temporary notice until owner arrives
+                            try {
+                                await ghostIntent.setRoomTopic(roomId, "PluralMatrix: Waiting for account owner to join...");
+                            } catch (e: any) {
+                                console.warn(`[Ghost] Failed to set room topic in ${roomId}:`, e.message);
+                            }
+                        }
+                    }
+                } catch (e: any) {
+                    console.error(`[Ghost] Auto-forwarding failed for ${targetUserId} in ${roomId}:`, e.message);
+                }
+                return;
+            }
+        }
+
+        // 2. Case: Join Handling (Power level promotion & Topic clearing)
+        if (membership === "join") {
+            // If the joining user is the bot or a primary user, check if we need to promote them
+            // We look for any ghost user already in the room to perform the promotion
+            try {
+                const members = await (bridgeInstance.getBot().getClient() as any).getJoinedRoomMembers(roomId);
+                const ghostInRoom = members.find((m: string) => m.startsWith("@_plural_"));
+                
+                if (ghostInRoom) {
+                    // Check if the joined user is the primary user for this ghost's system
+                    const parts = ghostInRoom.split(":")[0].split("_");
+                    const systemSlug = parts[2];
+                    const system = await prismaClient.system.findUnique({
+                        where: { slug: systemSlug },
+                        include: { accountLinks: true }
+                    });
+
+                    if (system) {
+                        const primaryUser = system.accountLinks.find(l => l.isPrimary)?.matrixId || system.accountLinks[0].matrixId;
+                        if (targetUserId === botUserId || targetUserId === primaryUser) {
+                            await syncPowerLevels(bridgeInstance, roomId, ghostInRoom, prismaClient);
+                            
+                            // If primary user joined, clear the temporary topic
+                            if (targetUserId === primaryUser) {
+                                try {
+                                    const ghostIntent = bridgeInstance.getIntent(ghostInRoom);
+                                    await ghostIntent.setRoomTopic(roomId, "");
+                                    console.log(`[Ghost] Cleared room topic in ${roomId} as primary user ${targetUserId} has joined.`);
+                                } catch (topicErr: any) {
+                                    // Might fail if ghost lost PLs or topic already empty
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                // Members check might fail if bot isn't in room yet
+            }
+        }
+    }
+
+    // Power Level Synchronization: Watch for Ghost promotion
+    if (event.type === "m.room.power_levels") {
+        try {
+            // Find any managed ghost in the room
+            const members = await (bridgeInstance.getBot().getClient() as any).getJoinedRoomMembers(roomId);
+            const ghostInRoom = members.find((m: string) => m.startsWith("@_plural_"));
+            if (ghostInRoom) {
+                await syncPowerLevels(bridgeInstance, roomId, ghostInRoom, prismaClient);
+            }
+        } catch (e) {}
     }
 
     // Reaction deletion logic
@@ -321,7 +517,7 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
                     slug,
                     name: `${localpart}'s System`,
                     accountLinks: {
-                        create: { matrixId: sender }
+                        create: { matrixId: sender, isPrimary: true }
                     }
                 },
                 include: { members: true }
@@ -349,9 +545,46 @@ export const handleEvent = async (request: Request<WeakEvent>, context: BridgeCo
 
         if (cmd === "link") {
             if (!parts[1]) {
-                await sendEncryptedText(bridgeInstance.getIntent(), roomId, "Usage: `pk;link <@user:domain>`");
+                await sendEncryptedText(bridgeInstance.getIntent(), roomId, "Usage: `pk;link <@user:domain>` or `pk;link primary <@user:domain>`");
                 return;
             }
+
+            if (parts[1].toLowerCase() === "primary" && parts[2]) {
+                const system = await proxyCache.getSystemRules(sender, prismaClient);
+                if (!system) return;
+
+                let targetMxid = parts[2].toLowerCase();
+                if (!targetMxid.startsWith("@")) targetMxid = `@${targetMxid}`;
+                if (!targetMxid.includes(":")) targetMxid = `${targetMxid}:${sender.split(":")[1]}`;
+
+                // Verify target is linked to THIS system
+                const link = await prismaClient.accountLink.findUnique({
+                    where: { matrixId: targetMxid }
+                });
+
+                if (!link || link.systemId !== system.id) {
+                    await sendRichText(bridgeInstance.getIntent(), roomId, `**${targetMxid}** is not linked to your system. Link it first with \`pk;link ${targetMxid}\`.`);
+                    return;
+                }
+
+                // Set as primary, unset others
+                await prismaClient.$transaction([
+                    prismaClient.accountLink.updateMany({
+                        where: { systemId: system.id },
+                        data: { isPrimary: false }
+                    }),
+                    prismaClient.accountLink.update({
+                        where: { matrixId: targetMxid },
+                        data: { isPrimary: true }
+                    })
+                ]);
+
+                proxyCache.invalidate(sender);
+                emitSystemUpdate(sender);
+                await sendRichText(bridgeInstance.getIntent(), roomId, `✅ **${targetMxid}** is now the primary routing account for this system. Direct messages sent to system members will be forwarded here.`);
+                return;
+            }
+
             const system = await getOrCreateSenderSystem();
             let targetMxid = parts[1].toLowerCase();
             if (!targetMxid.startsWith("@")) targetMxid = `@${targetMxid}`;

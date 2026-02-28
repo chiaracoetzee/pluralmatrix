@@ -51,6 +51,8 @@ jest.mock('./bot', () => {
     const original = jest.requireActual('./bot');
     return {
         ...original,
+        sendRichText: jest.fn(),
+        sendEncryptedText: jest.fn(),
         cryptoManager: {
             getMachine: jest.fn().mockResolvedValue({
                 deviceId: { toString: () => "MOCK_DEVICE" },
@@ -682,6 +684,41 @@ describe('Bot Commands Resolution Tests', () => {
                 roomId,
                 "m.room.message",
                 expect.objectContaining({ body: expect.stringContaining("Usage: `pk;link") }),
+                expect.anything(),
+                expect.anything()
+            );
+        });
+        it('pk;link primary <mxid> should set the primary account', async () => {
+            const targetMxid = "@bob:localhost";
+            const req = new Request({
+                data: {
+                    type: "m.room.message",
+                    event_id: "$cmd_event",
+                    room_id: roomId,
+                    sender: sender,
+                    content: { body: `pk;link primary ${targetMxid}` }
+                }
+            });
+
+            const { proxyCache } = require('./services/cache');
+            proxyCache.getSystemRules.mockResolvedValue({
+                id: "s1",
+                slug: "seraphim",
+                members: []
+            });
+
+            prisma.accountLink.findUnique = jest.fn().mockResolvedValue({ matrixId: targetMxid, systemId: "s1" });
+            prisma.$transaction = jest.fn().mockResolvedValue([]);
+
+            await handleEvent(req as any, undefined, mockBridge as any, prisma, false, "mock_token");
+
+            expect(prisma.$transaction).toHaveBeenCalled();
+            const { sendEncryptedEvent } = require('./crypto/encryption');
+            expect(sendEncryptedEvent).toHaveBeenCalledWith(
+                expect.anything(),
+                roomId,
+                "m.room.message",
+                expect.objectContaining({ body: expect.stringContaining(`is now the primary routing account`) }),
                 expect.anything(),
                 expect.anything()
             );

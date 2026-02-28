@@ -59,7 +59,7 @@ export const getSystem = async (req: AuthRequest, res: Response) => {
                 slug,
                 name: `${localpart}'s System`,
                 accountLinks: {
-                    create: { matrixId: mxid }
+                    create: { matrixId: mxid, isPrimary: true }
                 }
             }
         });
@@ -178,8 +178,16 @@ export const createLink = async (req: AuthRequest, res: Response) => {
             }
         }
 
+        const existingPrimary = await prisma.accountLink.findFirst({
+            where: { systemId: link.systemId, isPrimary: true }
+        });
+
         const newLink = await prisma.accountLink.create({
-            data: { matrixId: targetMxid, systemId: link.systemId }
+            data: { 
+                matrixId: targetMxid, 
+                systemId: link.systemId,
+                isPrimary: !existingPrimary
+            }
         });
 
         proxyCache.invalidate(targetMxid);
@@ -214,15 +222,24 @@ export const deleteLink = async (req: AuthRequest, res: Response) => {
             return res.status(403).json({ error: 'Forbidden' });
         }
 
+        const isTargetPrimary = targetLink.isPrimary;
+
         await prisma.accountLink.delete({ where: { matrixId: targetMxid } });
 
         // Cleanup if no links remain
-        const remaining = await prisma.accountLink.count({
+        const remainingLinks = await prisma.accountLink.findMany({
             where: { systemId: link.systemId }
         });
 
-        if (remaining === 0) {
+        if (remainingLinks.length === 0) {
             await prisma.system.delete({ where: { id: link.systemId } });
+        } else if (isTargetPrimary) {
+            // Promote another account to primary (prefer the current user)
+            const nextPrimary = remainingLinks.find(l => l.matrixId.toLowerCase() === mxid.toLowerCase()) || remainingLinks[0];
+            await prisma.accountLink.update({
+                where: { matrixId: nextPrimary.matrixId },
+                data: { isPrimary: true }
+            });
         }
 
         proxyCache.invalidate(targetMxid);
@@ -231,5 +248,48 @@ export const deleteLink = async (req: AuthRequest, res: Response) => {
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: 'Failed to delete link' });
+    }
+};
+
+export const setPrimaryAccount = async (req: AuthRequest, res: Response) => {
+    try {
+        const mxid = req.user!.mxid;
+        let { targetMxid } = req.body;
+        if (!targetMxid) return res.status(400).json({ error: 'Missing targetMxid' });
+
+        targetMxid = targetMxid.toLowerCase();
+
+        const link = await prisma.accountLink.findUnique({
+            where: { matrixId: mxid }
+        });
+
+        if (!link) return res.status(404).json({ error: 'System not found' });
+
+        // Verify target is part of the same system
+        const targetLink = await prisma.accountLink.findUnique({
+            where: { matrixId: targetMxid }
+        });
+
+        if (!targetLink || targetLink.systemId !== link.systemId) {
+            return res.status(403).json({ error: 'Forbidden' });
+        }
+
+        // Transaction to update primary status
+        await prisma.$transaction([
+            prisma.accountLink.updateMany({
+                where: { systemId: link.systemId },
+                data: { isPrimary: false }
+            }),
+            prisma.accountLink.update({
+                where: { matrixId: targetMxid },
+                data: { isPrimary: true }
+            })
+        ]);
+
+        proxyCache.invalidate(mxid);
+        emitSystemUpdate(mxid);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to set primary account' });
     }
 };

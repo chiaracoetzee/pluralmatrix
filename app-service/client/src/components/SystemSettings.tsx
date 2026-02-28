@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Settings, Hash, Link as LinkIcon, Trash2, Plus, AlertCircle } from 'lucide-react';
+import { X, Save, Settings, Hash, Link as LinkIcon, Trash2, Plus, AlertCircle, Star } from 'lucide-react';
 import { systemService } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 
@@ -74,6 +74,15 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ onSave, onCancel }) => 
             alert(err.response?.data?.error || 'Failed to link account.');
         } finally {
             setLinking(false);
+        }
+    };
+
+    const handleSetPrimary = async (mxid: string) => {
+        try {
+            await systemService.setPrimaryLink(mxid);
+            await fetchLinks();
+        } catch (err: any) {
+            alert(err.response?.data?.error || 'Failed to set primary account.');
         }
     };
 
@@ -172,22 +181,33 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ onSave, onCancel }) => 
                             {links.map((link) => {
                                 const isSelf = link.matrixId.toLowerCase() === user?.mxid.toLowerCase();
                                 return (
-                                    <div key={link.matrixId} className="flex items-center justify-between p-3 bg-matrix-dark/50 rounded-xl border border-white/5 group">
+                                    <div key={link.matrixId} className={`flex items-center justify-between p-3 rounded-xl border group transition-all ${link.isPrimary ? 'bg-yellow-500/10 border-yellow-500/20' : 'bg-matrix-dark/50 border-white/5'}`}>
                                         <div className="flex items-center space-x-3 overflow-hidden">
-                                            <div className="p-2 bg-matrix-primary/10 text-matrix-primary rounded-lg">
-                                                <LinkIcon size={14} />
+                                            <div className={`p-2 rounded-lg ${link.isPrimary ? 'bg-yellow-500/20 text-yellow-500' : 'bg-matrix-primary/10 text-matrix-primary'}`}>
+                                                {link.isPrimary ? <Star size={14} fill="currentColor" /> : <LinkIcon size={14} />}
                                             </div>
-                                            <span className="text-sm font-mono truncate">{link.matrixId}</span>
+                                            <span className={`text-sm font-mono truncate ${link.isPrimary ? 'text-yellow-500 font-bold' : ''}`}>{link.matrixId}</span>
                                         </div>
-                                        {!isSelf && (
-                                            <button 
-                                                onClick={() => handleRemoveLink(link.matrixId)}
-                                                className="p-2 text-matrix-muted hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
-                                                title="Unlink Account"
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
-                                        )}
+                                        <div className="flex items-center gap-1">
+                                            {!link.isPrimary && (
+                                                <button 
+                                                    onClick={() => handleSetPrimary(link.matrixId)}
+                                                    className="p-2 text-matrix-muted hover:text-yellow-500 transition-colors opacity-0 group-hover:opacity-100"
+                                                    title="Set as Primary Routing Account"
+                                                >
+                                                    <Star size={16} />
+                                                </button>
+                                            )}
+                                            {!isSelf && (
+                                                <button 
+                                                    onClick={() => handleRemoveLink(link.matrixId)}
+                                                    className="p-2 text-matrix-muted hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                                                    title="Unlink Account"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                 );
                             })}

@@ -52,6 +52,7 @@ export const systemService = {
     update: (data: any) => api.patch('/system', data),
     getLinks: () => api.get('/system/links'),
     createLink: (targetMxid: string) => api.post('/system/links', { targetMxid }),
+    setPrimaryLink: (targetMxid: string) => api.post('/system/links/primary', { targetMxid }),
     deleteLink: (mxid: string) => api.delete(`/system/links/${encodeURIComponent(mxid)}`),
 };
 

@@ -25,6 +25,7 @@ model AccountLink {
   matrixId String @id // The full Matrix Identifier (@user:domain)
   systemId String
   system   System @relation(fields: [systemId], references: [id], onDelete: Cascade)
+  isPrimary Boolean @default(false)
 }
 
 model Member {
