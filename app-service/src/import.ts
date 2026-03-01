@@ -170,7 +170,7 @@ import { ensureUniqueSlug } from './utils/slug';
 /**
  * Main importer logic for PluralKit JSON.
  */
-export const importFromPluralKit = async (mxid: string, jsonData: any) => {
+export const importFromPluralKit = async (mxid: string, jsonData: any): Promise<{ count: number, systemSlug: string }> => {
     console.log(`[Importer] Starting import for ${maskMxid(mxid)}`);
 
     const isPluralMatrix = jsonData.config?.pluralmatrix_version !== undefined;
@@ -318,7 +318,7 @@ export const importFromPluralKit = async (mxid: string, jsonData: any) => {
     }
 
     console.log(`[Importer] Successfully imported ${importedCount} members for ${maskMxid(mxid)}`);
-    return importedCount;
+    return { count: importedCount, systemSlug: system.slug };
 };
 
 /**
@@ -543,5 +543,5 @@ export const importAvatarsZip = async (mxid: string, zipBuffer: Buffer) => {
         }
     }
 
-    return count;
+    return { count, systemSlug: system.slug };
 };

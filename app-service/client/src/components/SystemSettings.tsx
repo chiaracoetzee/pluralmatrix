@@ -6,7 +6,7 @@ import DeadLetterQueue from './dlq/DeadLetterQueue';
 import { Archive } from 'lucide-react';
 
 interface SystemSettingsProps {
-    onSave: () => void;
+    onSave: (newSlug?: string) => void;
     onCancel: () => void;
 }
 
@@ -60,8 +60,8 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ onSave, onCancel }) => 
         e.preventDefault();
         setSaving(true);
         try {
-            await systemService.update(formData);
-            onSave();
+            const res = await systemService.update(formData);
+            onSave(res.data.slug);
         } catch (err: any) {
             alert(err.response?.data?.error || 'Failed to save system settings.');
         } finally {

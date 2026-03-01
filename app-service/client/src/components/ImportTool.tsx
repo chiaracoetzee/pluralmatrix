@@ -3,7 +3,7 @@ import { Upload, X, CheckCircle2, AlertCircle } from 'lucide-react';
 import { memberService } from '../services/api';
 
 interface ImportToolProps {
-    onComplete: () => void;
+    onComplete: (newSlug?: string) => void;
     onCancel: () => void;
 }
 
@@ -30,7 +30,8 @@ const ImportTool: React.FC<ImportToolProps> = ({ onComplete, onCancel }) => {
                     const res = await memberService.importPk(json);
                     setCount(res.data.count);
                     setStatus('success');
-                    setTimeout(() => onComplete(), 2000);
+                    // Pass the system slug if it was updated during import
+                    setTimeout(() => onComplete(res.data.systemSlug), 2000);
                 } catch (err: any) {
                     setError('Invalid JSON file or server error.');
                     setStatus('error');

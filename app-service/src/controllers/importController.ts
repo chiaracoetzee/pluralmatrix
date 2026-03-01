@@ -9,10 +9,11 @@ export const importPluralKit = async (req: AuthRequest, res: Response) => {
     try {
         const mxid = req.user!.mxid;
         const jsonData = PluralKitImportSchema.parse(req.body);
-        const count = await importFromPluralKit(mxid, jsonData);
+        const result = await importFromPluralKit(mxid, jsonData);
+        const { count, systemSlug } = result as any;
         proxyCache.invalidate(mxid); // Invalidate after import
         emitSystemUpdate(mxid);
-        res.json({ success: true, count });
+        res.json({ success: true, count, systemSlug });
     } catch (e) {
         console.error('[ImportController] Import failed:', e);
         res.status(400).json({ error: 'Invalid PluralKit JSON format' });

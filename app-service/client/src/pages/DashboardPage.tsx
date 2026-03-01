@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { memberService, systemService } from '../services/api';
 import MemberCard from '../components/MemberCard';
@@ -11,6 +11,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 
 const DashboardPage: React.FC = () => {
     const { slug: urlSlug } = useParams<{ slug: string }>();
+    const navigate = useNavigate();
     const { user, token, logout } = useAuth();
     
     const [system, setSystem] = useState<any>(null);
@@ -370,14 +371,28 @@ const DashboardPage: React.FC = () => {
 
             {isImporting && isOwner && (
                 <ImportTool 
-                    onComplete={() => { setIsImporting(false); fetchData(); }}
+                    onComplete={(newSlug) => { 
+                        setIsImporting(false); 
+                        if (newSlug && newSlug !== urlSlug) {
+                            navigate(`/s/${newSlug}`);
+                        } else {
+                            fetchData(); 
+                        }
+                    }}
                     onCancel={() => setIsImporting(false)}
                 />
             )}
 
             {isSettingsOpen && isOwner && (
                 <SystemSettings 
-                    onSave={() => { setIsSettingsOpen(false); fetchData(); }}
+                    onSave={(newSlug) => { 
+                        setIsSettingsOpen(false); 
+                        if (newSlug && newSlug !== urlSlug) {
+                            navigate(`/s/${newSlug}`);
+                        } else {
+                            fetchData(); 
+                        }
+                    }}
                     onCancel={() => setIsSettingsOpen(false)}
                 />
             )}
