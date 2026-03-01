@@ -115,9 +115,6 @@ export async function registerDevice(intent: Intent, deviceId: string): Promise<
                 
                 console.log(`[Crypto] Device ${deviceId} registration verified.`);
                 registeredDevices.add(cacheKey);
-                
-                // Explicit cooldown to prevent overwhelming Synapse DB
-                await sleep(1000);
                 return true;
             } catch (e: any) {
                 const isRateLimit = e.message?.includes("M_LIMIT_EXCEEDED") || (e.body && JSON.parse(e.body).errcode === "M_LIMIT_EXCEEDED");

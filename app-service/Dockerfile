@@ -45,4 +45,5 @@ COPY app-service/docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 9000
+EXPOSE 9001
 ENTRYPOINT ["docker-entrypoint.sh"]

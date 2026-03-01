@@ -3,7 +3,7 @@ import { sendEncryptedEvent } from '../crypto/encryption';
 import { messageQueue } from './queue/MessageQueue';
 import { registerDevice } from '../crypto/crypto-utils';
 
-const DOMAIN = process.env.SYNAPSE_DOMAIN || "localhost";
+const DOMAIN = process.env.SYNAPSE_DOMAIN || process.env.SYNAPSE_SERVER_NAME || "localhost";
 
 export interface GhostMessageOptions {
     roomId: string;
@@ -34,36 +34,30 @@ export const sendGhostMessage = async (options: GhostMessageOptions) => {
 
         const ghostUserId = `@_plural_${system.slug}_${member.slug}:${DOMAIN}`;
         const intent = bridge.getIntent(ghostUserId);
-        
-        // Ensure ghost user is registered
-        try { 
-            await intent.ensureRegistered(); 
-        } catch(e: any) {
-            if (e.errcode !== 'M_USER_IN_USE') {
-                console.error("[GhostService] Registration error:", e.message);
+        const finalDisplayName = system.systemTag ? `${member.displayName || member.name} ${system.systemTag}` : (member.displayName || member.name);
+
+        await intent.ensureRegistered();
+        try {
+            await intent.join(roomId);
+        } catch (e) {
+            // If join fails, try to have the bot invite the ghost then join again
+            try {
+                await bridge.getIntent().invite(roomId, ghostUserId);
+                await intent.join(roomId);
+            } catch (e2) {
+                // Ignore join failures (might lack permissions)
             }
         }
 
-        // Ensure cryptographic device is registered before enqueueing
+        // Ensure ghost device is registered for E2EE
         const machine = await cryptoManager.getMachine(ghostUserId);
         await registerDevice(intent, machine.deviceId.toString());
-        
-        const finalDisplayName = system.systemTag 
-            ? `${member.displayName || member.name} ${system.systemTag}`
-            : (member.displayName || member.name);
 
-        // Ensure ghost is in the room and has profile set
+        // Sync profile data (Display Name & Avatar)
         try {
-            await intent.sendStateEvent(roomId, "m.room.member", ghostUserId, {
-                membership: "join",
-                displayname: finalDisplayName,
-                avatar_url: member.avatarUrl || undefined
-            });
-        } catch (joinError) {
-            await intent.join(roomId);
             await intent.setDisplayName(finalDisplayName);
             if (member.avatarUrl) await intent.setAvatarUrl(member.avatarUrl);
-        }
+        } catch (e) {}
         
         // Pass the prepared message into the Dead Letter Queue
         messageQueue.enqueue(roomId, senderId, intent, cleanContent);

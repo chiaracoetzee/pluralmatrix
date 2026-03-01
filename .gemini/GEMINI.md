@@ -9,6 +9,12 @@
 
 Since `docker-compose` can be unreliable in this environment (due to `ContainerConfig` errors), use the helper script to rebuild and restart the services.
 
+## Modified Synapse (Blackhole Feature)
+* **Modified Source:** Located in `/synapse-src`. This is a fork of Synapse v1.147.1.
+* **New Hook:** Added `check_visibility_can_see_event` to `ThirdPartyEventRules` to allow modules to blackhole specific events from certain users.
+* **Visibility Logic:** Integrated into `synapse/visibility.py` and `synapse/handlers/sync.py`.
+* **Rebuilding:** If you modify the Python or Rust code in `/synapse-src`, run `./rebuild-synapse.sh` to compile and install it into the running container.
+
 ### Restart the Stack
 Run this from the project root:
 ```bash

@@ -1,14 +1,57 @@
 import { Request, Response } from 'express';
-import { prisma, asToken } from '../bot';
+import { prisma, asToken, cryptoManager, getBridge } from '../bot';
 import { proxyCache } from '../services/cache';
 import { GatekeeperCheckSchema } from '../schemas/gatekeeper';
 import { sendGhostMessage } from '../services/ghostService';
+import { RoomId } from '@matrix-org/matrix-sdk-crypto-nodejs';
 
 export const checkMessage = async (req: Request, res: Response) => {
     try {
-        const { sender, content, room_id } = GatekeeperCheckSchema.parse(req.body);
-        const body = content?.body || "";
+        const validated = GatekeeperCheckSchema.parse(req.body);
+        const { event_id, sender, room_id, bot_id } = validated;
+        let content = validated.content;
+        const isEncryptedSource = req.body.type === "m.room.encrypted";
 
+        // --- DECRYPTION SUPPORT (E2EE) ---
+        if ((isEncryptedSource || !content) && req.body.encrypted_payload) {
+            const rustRoomId = new RoomId(room_id);
+            const decryptionUserId = bot_id || (getBridge()?.getBot().getUserId()) || sender;
+            const machine = await cryptoManager.getMachine(decryptionUserId);
+            
+            const fullEncryptedEvent = {
+                content: req.body.encrypted_payload,
+                event_id: event_id,
+                sender: sender,
+                room_id: room_id,
+                type: "m.room.encrypted",
+                origin_server_ts: req.body.origin_server_ts || Date.now()
+            };
+
+            // Wait/Retry loop for Megolm keys
+            let lastError = "";
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    const decrypted = await machine.decryptRoomEvent(JSON.stringify(fullEncryptedEvent), rustRoomId);
+                    if (decrypted.event) {
+                        const parsed = JSON.parse(decrypted.event);
+                        content = parsed.content;
+                        break; 
+                    }
+                } catch (decErr: any) {
+                    lastError = decErr.message;
+                    if (attempt < 2) {
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                    }
+                }
+            }
+
+            if (!content) {
+                console.warn(`[Gatekeeper] Could not decrypt event ${event_id} after retries:`, lastError);
+                return res.json({ action: "ALLOW" });
+            }
+        }
+
+        const body = content?.body || "";
         const cleanSender = sender.toLowerCase();
         const system = await proxyCache.getSystemRules(cleanSender, prisma);
 
@@ -16,66 +59,66 @@ export const checkMessage = async (req: Request, res: Response) => {
             return res.json({ action: "ALLOW" });
         }
 
-        // Bypass proxying if the message starts with a backslash or is a pk; command
         if (body.startsWith("\\") || body.toLowerCase().startsWith("pk;")) {
             return res.json({ action: "ALLOW" });
         }
+
+        // --- PROXY CHECK ---
+        let matchFound = false;
+        let targetMember: any = null;
+        let cleanContent = "";
 
         for (const member of system.members) {
             const tags = member.proxyTags as any[];
             for (const tag of tags) {
                 if (body.startsWith(tag.prefix) && (tag.suffix ? body.endsWith(tag.suffix) : true)) {
-                    const cleanContent = body.slice(tag.prefix.length, body.length - (tag.suffix?.length || 0)).trim();
-                    if (!cleanContent) continue;
+                    cleanContent = body.slice(tag.prefix.length, body.length - (tag.suffix?.length || 0)).trim();
+                    if (cleanContent) {
+                        matchFound = true;
+                        targetMember = member;
+                        break;
+                    }
+                }
+            }
+            if (matchFound) break;
+        }
 
-                    // Match found: Triggering ghost message dispatch
-                    sendGhostMessage({
-                        roomId: room_id,
-                        cleanContent,
-                        system,
-                        member: {
-                            slug: member.slug,
-                            name: member.name,
-                            displayName: member.displayName,
-                            avatarUrl: member.avatarUrl
-                        },
-                        asToken: asToken,
-                        senderId: sender
-                    }).catch(e => {
-                        console.error("[Gatekeeper] Failed to send ghost message:", e.message);
-                    });
-
-                    return res.json({ action: "BLOCK" });
+        if (!matchFound && system.autoproxyId) {
+            const autoMember = system.members.find(m => m.id === system.autoproxyId);
+            if (autoMember) {
+                cleanContent = body.trim();
+                if (cleanContent) {
+                    matchFound = true;
+                    targetMember = autoMember;
                 }
             }
         }
 
-        // If no explicit tags match, check for autoproxy
-        if (system.autoproxyId) {
-            const autoMember = system.members.find(m => m.id === system.autoproxyId);
-            if (autoMember) {
-                const cleanContent = body.trim();
-                if (cleanContent) {
-                    // Match found: Triggering autoproxy message dispatch
-                    sendGhostMessage({
-                        roomId: room_id,
-                        cleanContent,
-                        system,
-                        member: {
-                            slug: autoMember.slug,
-                            name: autoMember.name,
-                            displayName: autoMember.displayName,
-                            avatarUrl: autoMember.avatarUrl
-                        },
-                        asToken: asToken,
-                        senderId: sender
-                    }).catch(e => {
-                        console.error("[Gatekeeper] Failed to send autoproxy ghost message:", e.message);
-                    });
-
-                    return res.json({ action: "BLOCK" });
-                }
+        if (matchFound && targetMember) {
+            // --- CONDITIONAL PROXYING ---
+            // We ONLY trigger the ghost message and redaction here for UNENCRYPTED messages.
+            // Encrypted messages will be handled by the bot's standard sync loop (bot.ts).
+            if (!isEncryptedSource) {
+                console.log(`[Gatekeeper] Triggering proxy for unencrypted ${event_id} for member ${targetMember.slug}`);
+                sendGhostMessage({
+                    roomId: room_id,
+                    cleanContent,
+                    system,
+                    member: {
+                        slug: targetMember.slug,
+                        name: targetMember.name,
+                        displayName: targetMember.displayName,
+                        avatarUrl: targetMember.avatarUrl
+                    },
+                    asToken: asToken,
+                    senderId: sender
+                    }).catch(e => {                    console.error("[Gatekeeper] Failed to send ghost message:", e.message);
+                });
+            } else {
+                console.log(`[Gatekeeper] E2EE Match for ${event_id} - Visibility BLOCKED, but letting bot.ts handle proxying.`);
             }
+
+            return res.json({ action: "BLOCK" });
         }
 
         return res.json({ action: "ALLOW" });

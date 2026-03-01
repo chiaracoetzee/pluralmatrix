@@ -1,0 +1,200 @@
+diff --git a/synapse/module_api/__init__.py b/synapse/module_api/__init__.py
+index 0580f36..9ff0ec3 100644
+--- a/synapse/module_api/__init__.py
++++ b/synapse/module_api/__init__.py
+@@ -123,6 +123,7 @@ from synapse.module_api.callbacks.third_party_event_rules_callbacks import (
+     CHECK_EVENT_ALLOWED_CALLBACK,
+     CHECK_THREEPID_CAN_BE_INVITED_CALLBACK,
+     CHECK_VISIBILITY_CAN_BE_MODIFIED_CALLBACK,
++    CHECK_VISIBILITY_CAN_SEE_EVENT_CALLBACK,
+     ON_ADD_USER_THIRD_PARTY_IDENTIFIER_CALLBACK,
+     ON_CREATE_ROOM_CALLBACK,
+     ON_NEW_EVENT_CALLBACK,
+@@ -488,6 +489,8 @@ class ModuleApi:
+         | None = None,
+         check_visibility_can_be_modified: CHECK_VISIBILITY_CAN_BE_MODIFIED_CALLBACK
+         | None = None,
++        check_visibility_can_see_event: CHECK_VISIBILITY_CAN_SEE_EVENT_CALLBACK
++        | None = None,
+         on_new_event: ON_NEW_EVENT_CALLBACK | None = None,
+         check_can_shutdown_room: CHECK_CAN_SHUTDOWN_ROOM_CALLBACK | None = None,
+         check_can_deactivate_user: CHECK_CAN_DEACTIVATE_USER_CALLBACK | None = None,
+@@ -509,6 +512,7 @@ class ModuleApi:
+             on_create_room=on_create_room,
+             check_threepid_can_be_invited=check_threepid_can_be_invited,
+             check_visibility_can_be_modified=check_visibility_can_be_modified,
++            check_visibility_can_see_event=check_visibility_can_see_event,
+             on_new_event=on_new_event,
+             check_can_shutdown_room=check_can_shutdown_room,
+             check_can_deactivate_user=check_can_deactivate_user,
+diff --git a/synapse/module_api/callbacks/third_party_event_rules_callbacks.py b/synapse/module_api/callbacks/third_party_event_rules_callbacks.py
+index 65f5a6b..35fda67 100644
+--- a/synapse/module_api/callbacks/third_party_event_rules_callbacks.py
++++ b/synapse/module_api/callbacks/third_party_event_rules_callbacks.py
+@@ -46,6 +46,9 @@ CHECK_THREEPID_CAN_BE_INVITED_CALLBACK = Callable[
+ CHECK_VISIBILITY_CAN_BE_MODIFIED_CALLBACK = Callable[
+     [str, StateMap[EventBase], str], Awaitable[bool]
+ ]
++CHECK_VISIBILITY_CAN_SEE_EVENT_CALLBACK = Callable[
++    [str, EventBase], Awaitable[bool]
++]
+ ON_NEW_EVENT_CALLBACK = Callable[[EventBase, StateMap[EventBase]], Awaitable]
+ CHECK_CAN_SHUTDOWN_ROOM_CALLBACK = Callable[[str | None, str], Awaitable[bool]]
+ CHECK_CAN_DEACTIVATE_USER_CALLBACK = Callable[[str, bool], Awaitable[bool]]
+@@ -75,6 +78,7 @@ def load_legacy_third_party_event_rules(hs: "HomeServer") -> None:
+         "on_create_room",
+         "check_threepid_can_be_invited",
+         "check_visibility_can_be_modified",
++        "check_visibility_can_see_event",
+     }
+ 
+     def async_wrapper(f: Callable | None) -> Callable[..., Awaitable] | None:
+@@ -167,6 +171,9 @@ class ThirdPartyEventRulesModuleApiCallbacks:
+         self._check_visibility_can_be_modified_callbacks: list[
+             CHECK_VISIBILITY_CAN_BE_MODIFIED_CALLBACK
+         ] = []
++        self._check_visibility_can_see_event_callbacks: list[
++            CHECK_VISIBILITY_CAN_SEE_EVENT_CALLBACK
++        ] = []
+         self._on_new_event_callbacks: list[ON_NEW_EVENT_CALLBACK] = []
+         self._check_can_shutdown_room_callbacks: list[
+             CHECK_CAN_SHUTDOWN_ROOM_CALLBACK
+@@ -194,6 +201,8 @@ class ThirdPartyEventRulesModuleApiCallbacks:
+         | None = None,
+         check_visibility_can_be_modified: CHECK_VISIBILITY_CAN_BE_MODIFIED_CALLBACK
+         | None = None,
++        check_visibility_can_see_event: CHECK_VISIBILITY_CAN_SEE_EVENT_CALLBACK
++        | None = None,
+         on_new_event: ON_NEW_EVENT_CALLBACK | None = None,
+         check_can_shutdown_room: CHECK_CAN_SHUTDOWN_ROOM_CALLBACK | None = None,
+         check_can_deactivate_user: CHECK_CAN_DEACTIVATE_USER_CALLBACK | None = None,
+@@ -223,6 +232,11 @@ class ThirdPartyEventRulesModuleApiCallbacks:
+                 check_visibility_can_be_modified,
+             )
+ 
++        if check_visibility_can_see_event is not None:
++            self._check_visibility_can_see_event_callbacks.append(
++                check_visibility_can_see_event,
++            )
++
+         if on_new_event is not None:
+             self._on_new_event_callbacks.append(on_new_event)
+ 
+@@ -410,6 +424,33 @@ class ThirdPartyEventRulesModuleApiCallbacks:
+ 
+         return True
+ 
++    async def check_visibility_can_see_event(
++        self, user_id: str, event: EventBase
++    ) -> bool:
++        """Check if a user is allowed to see a specific event.
++
++        Args:
++            user_id: The ID of the user.
++            event: The event to check.
++
++        Returns:
++            True if the user can see the event, False if not.
++        """
++        if len(self._check_visibility_can_see_event_callbacks) == 0:
++            return True
++
++        for callback in self._check_visibility_can_see_event_callbacks:
++            try:
++                can_see = await delay_cancellation(callback(user_id, event))
++                if can_see is False:
++                    return False
++            except CancelledError:
++                raise
++            except Exception as e:
++                logger.warning("Failed to run module API callback %s: %s", callback, e)
++
++        return True
++
+     async def on_new_event(self, event_id: str) -> None:
+         """Let modules act on events after they've been sent (e.g. auto-accepting
+         invites, etc.)
+diff --git a/synapse/visibility.py b/synapse/visibility.py
+index 452a2d5..465a5b2 100644
+--- a/synapse/visibility.py
++++ b/synapse/visibility.py
+@@ -176,12 +176,12 @@ async def filter_and_transform_events_for_client(
+                 room_id
+             ] = await storage.main.get_retention_policy_for_room(room_id)
+ 
+-    def allowed(event: EventBase) -> EventBase | None:
++    async def allowed(event: EventBase) -> EventBase | None:
+         state_after_event = event_id_to_state.get(event.event_id)
+-        filtered = _check_client_allowed_to_see_event(
++        filtered = await _check_client_allowed_to_see_event(
+             user_id=user_id,
+             event=event,
+-            clock=storage.main.clock,
++            storage=storage,
+             filter_send_to_client=filter_send_to_client,
+             sender_ignored=event.sender in ignore_list,
+             always_include_ids=always_include_ids,
+@@ -241,7 +241,7 @@ async def filter_and_transform_events_for_client(
+         return cloned
+ 
+     # Check each event: gives an iterable of None or (a modified) EventBase.
+-    filtered_events = map(allowed, events)
++    filtered_events = [await allowed(ev) for ev in events]
+ 
+     # Turn it into a list and remove None entries before returning.
+     return [ev for ev in filtered_events if ev]
+@@ -373,10 +373,10 @@ async def _get_state_map(
+     return updated_state_map
+ 
+ 
+-def _check_client_allowed_to_see_event(
++async def _check_client_allowed_to_see_event(
+     user_id: str,
+     event: EventBase,
+-    clock: Clock,
++    storage: StorageControllers,
+     filter_send_to_client: bool,
+     is_peeking: bool,
+     always_include_ids: frozenset[str],
+@@ -392,7 +392,7 @@ def _check_client_allowed_to_see_event(
+     Args:
+         user_id
+         event
+-        clock
++        storage: Storage controllers
+         filter_send_to_client
+         is_peeking
+         always_include_ids
+@@ -409,13 +409,31 @@ def _check_client_allowed_to_see_event(
+ 
+         the original event if they can see it as normal.
+     """
++    # Check third party rules first
++    if filter_send_to_client:
++        try:
++            third_party_rules = storage.main.hs.get_module_api()._callbacks.third_party_event_rules
++            if not await third_party_rules.check_visibility_can_see_event(
++                user_id, event
++            ):
++                filtered_event_logger.debug(
++                    "_check_client_allowed_to_see_event(event=%s): Filtered out event by third-party rules for user %s",
++                    event.event_id,
++                    user_id,
++                )
++                return None
++        except Exception as e:
++            logger.warning("Error in check_visibility_can_see_event: %s", e)
++
+     # Only run some checks if these events aren't about to be sent to clients. This is
+     # because, if this is not the case, we're probably only checking if the users can
+     # see events in the room at that point in the DAG, and that shouldn't be decided
+     # on those checks.
+     if filter_send_to_client:
+         if (
+-            _check_filter_send_to_client(event, clock, retention_policy, sender_ignored)
++            _check_filter_send_to_client(
++                event, storage.main.clock, retention_policy, sender_ignored
++            )
+             == _CheckFilter.DENIED
+         ):
+             filtered_event_logger.debug(

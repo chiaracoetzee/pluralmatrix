@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # PluralMatrix Restart Helper Script 🚀
-# Wrapper around docker-compose for pre-flight permissions and SQL setup.
+# Wrapper around docker compose for pre-flight permissions and SQL setup.
 
 # 1. Prerequisite Checks
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,12 +13,18 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
-for tool in docker docker-compose grep cut tr; do
+for tool in docker grep cut tr; do
   if ! command -v $tool &> /dev/null; then
     echo "❌ Error: Required tool '$tool' is not installed."
     exit 1
   fi
 done
+
+# Verify docker compose specifically
+if ! docker compose version &> /dev/null; then
+  echo "❌ Error: 'docker compose' plugin is not installed."
+  exit 1
+fi
 
 # Load configuration from .env
 export $(grep -v '^#' .env | xargs)
@@ -38,7 +44,7 @@ sudo chown -R $S_UID:$S_GID synapse/config 2>/dev/null || true
 
 # 2. Start Postgres and wait for healthiness
 echo "🐘 Starting database..."
-sudo docker-compose up -d postgres
+sudo docker compose up -d postgres
 
 echo "🐘 Ensuring plural_db and plural_app user exist..."
 PG_PASS=$(grep POSTGRES_PASSWORD .env | cut -d '=' -f2 | tr -d '\r')
@@ -86,10 +92,10 @@ echo " Database and user verified!"
 
 # 3. Bring up the rest of the stack
 echo "📦 Building and starting services..."
-sudo docker-compose up -d --build
+sudo docker compose up -d --build
 
 # 4. Final status
 echo "📊 Current Status:"
-sudo docker-compose ps
+sudo docker compose ps
 
 echo "✅ Done! Services are initializing. App service will auto-sync DB schema."

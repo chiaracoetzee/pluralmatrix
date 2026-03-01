@@ -45,7 +45,7 @@ app_service_config_files:
 modules:
   - module: plural_gatekeeper.PluralGatekeeper
     config:
-      service_url: "http://app-service:9000/check"
+      service_url: "http://app-service:9001/check"
       as_token: "secret_token"
 
 enable_registration: true

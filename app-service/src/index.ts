@@ -4,6 +4,7 @@ import cors from 'cors';
 import path from 'path';
 import { startMatrixBot } from './bot';
 import routes from './routes';
+import gatekeeperRoutes from './routes/gatekeeperRoutes';
 import * as gatekeeperController from './controllers/gatekeeperController';
 import { messageQueue } from './services/queue/MessageQueue';
 
@@ -50,6 +51,18 @@ if (require.main === module) {
     startMatrixBot().then(async () => {
         app.listen(PORT, () => {
             console.log(`App Service (Brain) listening on port ${PORT}`);
+        });
+
+        // --- INTERNAL GATEKEEPER PORT (Port 9001) ---
+        // This port is NOT exposed in docker-compose.yml and is only 
+        // accessible to Synapse within the Docker network.
+        const internalApp = express();
+        internalApp.use(bodyParser.json({ limit: '5mb' }));
+        // Bypass the router and mount the controller function directly
+        internalApp.post('/check', gatekeeperController.checkMessage); 
+        
+        internalApp.listen(9001, '0.0.0.0', () => {
+            console.log(`Internal Gatekeeper listening on port 9001 (Docker-only)`);
         });
     }).catch(err => {
         console.error("Failed to start Matrix Bot:", err);
