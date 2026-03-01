@@ -67,7 +67,16 @@ class PluralGatekeeper:
             if sender.startswith("@_plural_") or sender == self.bot_id: 
                 return False
 
-            # Prepare payload
+            raw_content = getattr(event, "content", {})
+            
+            # If this is an unencrypted message and the body is EMPTY, it means 
+            # we already identified it as a proxy message and cleared it in check_event_allowed.
+            if event_type == "m.room.message" and not raw_content.get("body"):
+                if event_id:
+                    self._cache[cache_key] = True
+                return True
+
+            # Prepare payload for Brain check
             payload_dict = {
                 "event_id": event_id,
                 "sender": sender,
@@ -78,9 +87,8 @@ class PluralGatekeeper:
             }
 
             if event_type == "m.room.encrypted":
-                payload_dict["encrypted_payload"] = to_mutable(getattr(event, "content", {}))
+                payload_dict["encrypted_payload"] = to_mutable(raw_content)
             else:
-                raw_content = getattr(event, "content", {})
                 if raw_content.get("msgtype") != "m.text":
                     return False
                 payload_dict["content"] = to_mutable(raw_content)
@@ -126,13 +134,11 @@ class PluralGatekeeper:
         Visibility Hook: Decide who is allowed to see this specific event.
         """
         # RULE 1: The original sender must ALWAYS be allowed to see their own message.
-        # This prevents 'red error' states in clients.
         sender = getattr(event, "sender", "")
         if user_id == sender:
             return True
 
         # RULE 2: The PluralBot must ALWAYS be allowed to see everything.
-        # This allows it to process commands, proxy messages, and perform cleanup.
         if user_id == self.bot_id:
             return True
 
@@ -149,7 +155,8 @@ class PluralGatekeeper:
         # Only do module-side redaction for clear regular non-encrypted messages
         event_type = getattr(event, "type", "")
         if event_type != "m.room.message":
-            return (True, None)        
+            return
+            
         if await self._is_proxy_message(event):
             event_id = getattr(event, "event_id", None)
             room_id = getattr(event, "room_id", None)
