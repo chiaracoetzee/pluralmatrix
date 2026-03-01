@@ -93,7 +93,7 @@ PluralMatrix requires access to message content to function. Users and server ad
 
 For the best experience and a clean timeline, we recommend these client-specific settings (last tested February 2026).
 
-**Note:** Both message senders and receivers need to configure these settings to see a perfectly clean timeline.
+**Note:** With the **Synapse Zero-Flash patch**, onlookers can use **any client** without seeing placeholders; only the sender needs these settings to hide their own redacted original messages.
 
 ### Mobile
 - ⚙️ **Element Classic:** Disable **Settings → Preferences → Show removed messages**.
