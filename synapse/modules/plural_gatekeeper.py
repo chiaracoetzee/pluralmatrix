@@ -110,8 +110,12 @@ class PluralGatekeeper:
             return (True, None)        
         is_proxy = await self._is_proxy_message(event)
         event_dict = to_mutable(event.get_dict())
-        if is_proxy and not self.has_visibility_hook:
+        if is_proxy:
             if "content" in event_dict:
+                # Clear body does two things for unencrypted messages:
+                # 1. Avoid double proxy since the /check call already proxied the message
+                # 2. Minimizes the flash in the case where the
+                #    check_visibility_can_see_event patch is unavailable
                 event_dict["content"]["body"] = "" 
                 if "formatted_body" in event_dict["content"]:
                     event_dict["content"]["formatted_body"] = ""
